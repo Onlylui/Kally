@@ -186,6 +186,7 @@ kally/
 ├── .env.example        # modelo das variáveis (o .env real fica fora do git)
 ├── .gitignore
 ├── requirements.txt
+├── pytest.ini          # configuração dos testes (rodar com: pytest)
 ├── migrations/
 │   └── 001_inicial.sql
 ├── tests/              # parser, cálculos e validação do Gemini
