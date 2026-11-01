@@ -1,0 +1,118 @@
+// KALLY — Banco de dados (PostgreSQL 16)
+// Para visualizar: cole este arquivo em https://dbdiagram.io
+// Fonte da verdade da estrutura. Mantenha em sincronia com a seção
+// "Banco de dados" de Docs/bot-dieta-planejamento.md.
+
+Project kally {
+  database_type: 'PostgreSQL'
+  Note: '''
+  Bot de Telegram para contar calorias em grupo.
+  Regras em Docs/regras-de-negocio.md; decisões em Docs/decisoes.md.
+  '''
+}
+
+Table usuarios {
+  telegram_id bigint [pk, note: 'ID do usuário no Telegram']
+  nome text [not null, note: 'Atualizado a cada mensagem, porque o nome no Telegram muda']
+  criado_em timestamptz [not null, default: `now()`]
+
+  Note: 'Participantes do grupo. Criado no primeiro comando de cada pessoa.'
+}
+
+Table alimentos {
+  id bigserial [pk]
+  nome text [not null, unique, note: 'Texto que a pessoa escreveu, normalizado: minúsculo, sem acento, singular, sem quantidade. Ex.: 150 g de arroz → arroz (D-034)']
+  kcal_100g numeric [not null, note: 'CHECK entre 0 e 900 (RN-016)']
+  proteina_100g numeric [not null]
+  carbo_100g numeric [not null]
+  gordura_100g numeric [not null]
+  porcao_g numeric [not null, note: 'Gramas de 1 porção padrão. CHECK > 0']
+  porcao_nome text [not null, note: 'Ex.: 1 bife, 1 unidade, 1 colher de servir']
+  origem text [not null, default: 'ia', note: 'ia | manual (corrigido direto no banco, D-028)']
+  criado_em timestamptz [not null, default: `now()`]
+
+  Note: '''
+  Base própria de alimentos, com valores por 100 g (RN-016, D-026).
+  Busca só pelo nome, sem apelidos (D-030). O Gemini fornece só os valores (D-034).
+  Começa vazia e é preenchida pelo Gemini (D-027).
+  '''
+}
+
+Table refeicoes {
+  id bigserial [pk]
+  telegram_id bigint [not null, ref: > usuarios.telegram_id]
+  chat_id bigint [not null]
+  message_id bigint [note: 'Mensagem de resposta do bot, onde ficam os botões (RN-015)']
+  descricao text [not null, note: 'Texto enviado no /r ou /retro']
+  kcal integer [not null, note: 'Soma dos itens, ou o valor digitado quando kcal_manual']
+  proteina_g numeric [not null]
+  carbo_g numeric [not null]
+  gordura_g numeric [not null]
+  data date [not null, note: 'Dia em que a refeição conta, no fuso de São Paulo, calculado ao gravar (RN-001, RN-007)']
+  hora time [note: 'Vazia no /retro sem hora (RN-014)']
+  retroativo boolean [not null, default: false, note: 'Registrado com /retro (RN-014)']
+  kcal_manual boolean [not null, default: false, note: 'Calorias corrigidas digitando um número (RN-015)']
+  registrado_em timestamptz [not null, default: `now()`]
+
+  indexes {
+    (telegram_id, data) [name: 'ix_refeicoes_usuario_data']
+  }
+
+  Note: '''
+  Uma linha por /r ou /retro (D-022). Totais de /dia, /semana e o CSV saem daqui.
+  Os totais ficam gravados aqui (além de nos itens) para as consultas não precisarem somar itens,
+  e porque a correção por número (kcal_manual) muda só o total da refeição.
+  O botão Apagar remove a linha com DELETE, e os itens vão junto (D-033).
+  '''
+}
+
+Table refeicao_itens {
+  id bigserial [pk]
+  refeicao_id bigint [not null]
+  alimento_id bigint [not null]
+  ordem smallint [not null, note: 'Posição do item na descrição, para mostrar na mesma ordem']
+  texto text [not null, note: 'Trecho da descrição que gerou o item. Ex.: 1 bife']
+  gramas numeric [not null, note: 'Informado pela pessoa ou porção padrão × unidades (RN-016). CHECK > 0']
+  kcal numeric [not null, note: 'Copiado no momento do registro: corrigir a base não muda refeições antigas (D-028)']
+  proteina_g numeric [not null]
+  carbo_g numeric [not null]
+  gordura_g numeric [not null]
+
+  indexes {
+    refeicao_id [name: 'ix_itens_refeicao']
+    alimento_id [name: 'ix_itens_alimento']
+  }
+
+  Note: '''
+  Um alimento dentro de uma refeição (D-029).
+  Corrigir pela descrição (RN-015) apaga os itens da refeição e grava os novos.
+  Corrigir por número (kcal_manual) não mexe nos itens: eles guardam a estimativa original.
+  '''
+}
+
+Ref: refeicao_itens.refeicao_id > refeicoes.id [delete: cascade]
+Ref: refeicao_itens.alimento_id > alimentos.id [delete: restrict]
+
+Table pesos {
+  id bigserial [pk]
+  telegram_id bigint [not null, ref: > usuarios.telegram_id]
+  chat_id bigint [not null]
+  message_id bigint [note: 'Mensagem de resposta do bot, onde ficam os botões (RN-015)']
+  peso_kg "numeric(5,2)" [not null, note: 'CHECK entre 30 e 300 (RN-012)']
+  data date [not null, note: 'Fuso de São Paulo']
+  hora time [not null]
+  registrado_em timestamptz [not null, default: `now()`]
+
+  indexes {
+    (telegram_id, data) [name: 'ix_pesos_usuario_data']
+  }
+
+  Note: 'Pesagens registradas com /peso (RN-012). Só armazenamento, sem relação com as calorias (D-013).'
+}
+
+Table schema_versao {
+  versao integer [pk, note: 'Número do arquivo em migrations/ (001, 002, ...)']
+  aplicada_em timestamptz [not null, default: `now()`]
+
+  Note: 'Controle das migrações aplicadas pelo bot ao iniciar.'
+}
