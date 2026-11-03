@@ -47,6 +47,7 @@ Diário de bordo do projeto: cada decisão importante, quando foi tomada, por qu
 | D-032 | 2026-11-01 | Limitações aceitas no MVP: base compartilhada, total da refeição prevalece, sem histórico de correção | Técnica | vigente |
 | D-033 | 2026-11-01 | Apagar remove o registro de verdade (`DELETE`), depois de confirmação | Técnica | vigente |
 | D-034 | 2026-11-01 | O nome do alimento na base é o texto que a pessoa escreveu, não o nome dado pelo Gemini | Técnica | vigente |
+| D-035 | 2026-11-02 | Tudo roda em Docker, também no desenvolvimento; sem execução local | Técnica | vigente |
 
 ---
 
@@ -239,3 +240,14 @@ Diário de bordo do projeto: cada decisão importante, quando foi tomada, por qu
 - **Motivo:** quem escreve sempre do mesmo jeito sempre encontra o mesmo alimento, sem duplicatas e sem nova chamada à IA.
 - **Consequência:** "arroz" e "arroz integral" continuam sendo alimentos diferentes, como deve ser.
 - **Aceito pelos usuários:** formas diferentes de escrever a mesma coisa ("arroz", "arroz branco") viram alimentos repetidos na base. Isso não é problema: a base reflete o que cada um digita.
+
+### D-035 — Só Docker, também no desenvolvimento
+- **Contexto:** o roteiro deixava o Docker para a etapa 9, com o bot rodando direto com Python no desenvolvimento. Na máquina de desenvolvimento já existe um Postgres local usando a porta 5432.
+- **Decisão:** a partir da etapa 2, o bot e o banco rodam sempre em Docker Compose, no desenvolvimento e no servidor. Os testes também rodam no container.
+- **Alternativas descartadas:** rodar o bot com Python local e só o banco no Docker; usar o Postgres já instalado na máquina.
+- **Motivo:** o ambiente de desenvolvimento fica igual ao de produção, e o banco do KALLY fica isolado dos outros.
+- **Consequências:**
+  - O bot encontra o banco sempre em `db:5432`, dentro da rede do Compose.
+  - O código é montado no container (bind mount): mudou o código, basta reiniciar o bot, sem reconstruir a imagem.
+  - O banco fica acessível na máquina só em `127.0.0.1:5433`, para consulta com ferramentas como DBeaver. Não conflita com o Postgres local.
+  - O Docker sai da etapa 9 e entra na etapa 2 do roteiro.
