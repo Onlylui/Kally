@@ -1,0 +1,41 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      # Lidos do .env (o Compose lê o .env da pasta automaticamente).
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - kally_dados:/var/lib/postgresql/data
+    ports:
+      # Só a própria máquina acessa (DBeaver, pgAdmin). A 5433 evita conflito
+      # com um Postgres local na 5432 (D-035).
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      # $$ faz o Compose passar o $ adiante: a variável é lida dentro do container.
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  bot:
+    build: .
+    env_file: .env
+    environment:
+      # Dentro da rede do Compose, o banco é sempre db:5432.
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # Código montado no container: mudou o código, basta reiniciar o bot.
+      - ./app:/app/app
+      - ./migrations:/app/migrations
+      - ./tests:/app/tests
+    restart: unless-stopped
+
+volumes:
+  kally_dados:
