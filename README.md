@@ -2,7 +2,7 @@
 
 **KALLY** é um bot de Telegram para contar calorias em grupo. Os participantes registram o que comeram, o bot calcula calorias e macros com uma base própria de alimentos (usando o Gemini só para alimentos novos), guarda tudo num banco PostgreSQL e mostra o total do dia e da semana de cada um. O histórico pode ser exportado em CSV para análise.
 
-> 🚧 **Status:** regras do MVP fechadas, desenvolvimento ainda não iniciado.
+> 🚧 **Status:** em desenvolvimento. Funcionam o `/id`, o `/peso` e o bot papagaio provisório.
 
 ```
 João: /r arroz, feijão, 1 bife e salada
@@ -71,25 +71,34 @@ Como usa polling, **não precisa de porta aberta, IP fixo, domínio ou HTTPS**. 
 
 ## Instalação
 
+Tudo roda em Docker, no desenvolvimento e no servidor (D-035). Não é preciso instalar Python nem Postgres na máquina.
+
 ```bash
 git clone <url-do-repositorio> kally
 cd kally
 cp .env.example .env
 # edite o .env com seus tokens e senhas
-docker compose up -d
+docker compose up -d --build
 ```
 
-Ver os logs:
+Na primeira subida, o Postgres cria o banco com o usuário, a senha e o nome do `.env`, e o bot aplica as migrações de `migrations/`.
+
+### Comandos do dia a dia
 
 ```bash
-docker compose logs -f bot
+docker compose up -d --build        # sobe tudo (o --build é necessário na primeira vez e quando o requirements.txt muda)
+docker compose logs -f bot          # acompanha o log do bot
+docker compose restart bot          # aplica mudanças no código
+docker compose run --rm bot pytest  # roda os testes
+docker compose exec db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'   # abre o banco no terminal
+docker compose down                 # para tudo (os dados continuam no volume)
 ```
 
-Parar:
+> ⚠️ `docker compose down -v` **apaga o volume e todos os dados**. Só para recomeçar do zero.
 
-```bash
-docker compose down
-```
+O código de `app/`, `migrations/` e `tests/` é montado no container: depois de editar, basta `docker compose restart bot`.
+
+O banco fica acessível só na própria máquina, em `127.0.0.1:5433` (para DBeaver ou pgAdmin). A porta 5433 evita conflito com um Postgres local na 5432.
 
 ---
 
@@ -101,12 +110,14 @@ docker compose down
 | `GEMINI_API_KEY` | Chave da API do Gemini |
 | `GEMINI_MODEL` | Modelo do Gemini a usar (configurável, pois o Google troca versões com frequência) |
 | `ALLOWED_CHAT_IDS` | IDs dos grupos autorizados, separados por vírgula (use `/id` no grupo para descobrir) |
-| `POSTGRES_USER` | Usuário do banco |
+| `POSTGRES_USER` | Usuário do banco (usado pelo container do banco para criá-lo e pelo bot para conectar) |
 | `POSTGRES_PASSWORD` | Senha do banco |
 | `POSTGRES_DB` | Nome do banco |
 | `TZ` | Fuso horário (`America/Sao_Paulo`) |
 
-> ⚠️ Nunca suba o arquivo `.env` para o repositório.
+O endereço do banco (`POSTGRES_HOST=db`, `POSTGRES_PORT=5432`) fica fixo no `docker-compose.yml`, não no `.env`.
+
+> ⚠️ Nunca suba o arquivo `.env` para o repositório. Ele também não entra na imagem do Docker (`.dockerignore`).
 
 ---
 
@@ -124,12 +135,12 @@ Recomendado agendar via `cron` no servidor.
 
 ## Roadmap
 
-- [ ] Bot papagaio funcionando no grupo, com `/id`
-- [ ] Banco, migrações e `/peso`
+- [x] Bot papagaio funcionando no grupo, com `/id`
+- [ ] Docker, banco, migrações e `/peso`
 - [ ] `/r` com o Gemini
 - [ ] Base de alimentos (IA só para alimentos novos)
 - [ ] Botões de corrigir e apagar
 - [ ] `/retro`
 - [ ] `/dia` e `/semana`
 - [ ] `/exportar`
-- [ ] Docker Compose e deploy
+- [ ] Deploy no servidor

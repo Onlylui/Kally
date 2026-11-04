@@ -271,11 +271,25 @@ João: /peso
 KALLY: João: 82,4 kg em dom 01/11
 ```
 
+### Consultar sem nenhuma pesagem · RN-012
+```
+Maria: /peso
+
+KALLY: Maria: nenhuma pesagem registrada ainda. Ex.: /peso 82,4
+```
+
 ### Valor inválido · RN-012
 ```
 João: /peso 824
 
 KALLY: Peso fora do esperado (30 a 300 kg). Ex.: /peso 82,4
+```
+
+### Valor que não é número · RN-012
+```
+João: /peso abc
+
+KALLY: Não entendi o peso. Ex.: /peso 82,4
 ```
 
 ### Corrigir uma pesagem · RN-012, RN-015

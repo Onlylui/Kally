@@ -1,4 +1,4 @@
-"""Ponto de entrada do KALLY. Rodar com: python -m app.main"""
+"""Ponto de entrada do KALLY. Roda no container: docker compose up -d (D-035)."""
 
 import logging
 import os
@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, TypeHandler, filters
 
-from app import handlers
+from app import db, handlers
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,34 @@ def configurar_log() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
+async def iniciar_banco(app: Application) -> None:
+    """post_init: conecta ao banco e aplica as migrações antes de receber mensagens.
+
+    Se algo falhar, lança RuntimeError e o bot não sobe pela metade.
+    """
+    try:
+        pool = await db.criar_pool()
+    except Exception as erro:
+        raise RuntimeError(f"não consegui conectar ao banco ({type(erro).__name__}: {erro})") from erro
+
+    try:
+        await db.aplicar_migracoes(pool)
+    except Exception as erro:
+        await pool.close()
+        raise RuntimeError(f"falha ao aplicar as migrações ({type(erro).__name__}: {erro})") from erro
+
+    app.bot_data["pool"] = pool
+    logger.info("Banco conectado e migrações em dia.")
+    logger.info("KALLY iniciado (polling).")
+
+
+async def fechar_banco(app: Application) -> None:
+    """post_shutdown: devolve as conexões do pool."""
+    pool = app.bot_data.get("pool")
+    if pool is not None:
+        await pool.close()
+
+
 def main() -> None:
     configurar_log()
     load_dotenv()
@@ -55,12 +83,19 @@ def main() -> None:
     else:
         logger.info("%d chat(s) autorizado(s).", len(permitidos))
 
-    app = Application.builder().token(token).build()
+    app = (
+        Application.builder()
+        .token(token)
+        .post_init(iniciar_banco)
+        .post_shutdown(fechar_banco)
+        .build()
+    )
     app.bot_data["allowed_chat_ids"] = permitidos
 
     # RN-002: o filtro roda no grupo -1, antes de todos os outros handlers.
     app.add_handler(TypeHandler(Update, handlers.filtrar_chats), group=-1)
     app.add_handler(CommandHandler("id", handlers.comando_id, filters=filters.UpdateType.MESSAGE))
+    app.add_handler(CommandHandler("peso", handlers.comando_peso, filters=filters.UpdateType.MESSAGE))
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND & filters.UpdateType.MESSAGE,
@@ -69,10 +104,14 @@ def main() -> None:
     )
     app.add_error_handler(handlers.tratar_erro)
 
-    logger.info("KALLY iniciado (polling).")
+    logger.info("Iniciando o KALLY...")
     # Sem drop_pending_updates: mensagens enviadas com o bot fora do ar
     # são processadas quando ele volta (RN-007).
-    app.run_polling()
+    try:
+        app.run_polling()
+    except RuntimeError as erro:
+        logger.critical("KALLY parou na inicialização: %s", erro)
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":

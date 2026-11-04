@@ -181,14 +181,15 @@ Os scripts SQL ficam em `migrations/` (`001_inicial.sql`, `002_...`) e são apli
 
 ```
 kally/
-├── docker-compose.yml
-├── Dockerfile
+├── docker-compose.yml  # serviços db e bot (D-035)
+├── Dockerfile          # imagem do bot
+├── .dockerignore       # o que não entra na imagem (inclusive o .env)
 ├── .env.example        # modelo das variáveis (o .env real fica fora do git)
 ├── .gitignore
 ├── requirements.txt
-├── pytest.ini          # configuração dos testes (rodar com: pytest)
+├── pytest.ini          # configuração dos testes (rodar com: docker compose run --rm bot pytest)
 ├── migrations/
-│   └── 001_inicial.sql
+│   └── 001_inicial.sql # todas as tabelas do MVP
 ├── tests/              # parser, cálculos e validação do Gemini
 └── app/
     ├── main.py         # inicia o bot e aplica as migrações
@@ -208,20 +209,22 @@ TELEGRAM_TOKEN=
 GEMINI_API_KEY=
 GEMINI_MODEL=            # trocar de modelo sem mexer no código
 ALLOWED_CHAT_IDS=        # id(s) do grupo, separados por vírgula
-POSTGRES_USER=
+POSTGRES_USER=          # usados pelo container do banco (criação) e pelo bot (conexão)
 POSTGRES_PASSWORD=
 POSTGRES_DB=
 TZ=America/Sao_Paulo
 ```
 
+`POSTGRES_HOST` e `POSTGRES_PORT` não ficam no `.env`: estão fixos no `docker-compose.yml` (`db` e `5432`), porque dentro da rede do Compose o endereço do banco é sempre esse.
+
 ---
 
 ## 7. Docker
 
-Dois serviços no Compose:
+Tudo roda em Docker Compose desde a etapa 2, no desenvolvimento e no servidor, inclusive os testes (D-035). Dois serviços:
 
-- **db**: imagem oficial do Postgres 16, volume para persistir os dados, sem porta exposta para fora
-- **bot**: imagem do código Python, sobe só depois do Postgres estar saudável (healthcheck)
+- **db**: imagem oficial do Postgres 16, volume nomeado `kally_dados` para persistir os dados, healthcheck com `pg_isready`. A porta fica presa ao `127.0.0.1:5433`: só a própria máquina acessa (DBeaver, pgAdmin), e a 5433 não conflita com um Postgres local na 5432.
+- **bot**: imagem do código Python (`Dockerfile`), sobe só depois do Postgres estar saudável. Lê o `.env` por `env_file` (o `.env` nunca entra na imagem; está no `.dockerignore`). Encontra o banco em `db:5432`. As pastas `app/`, `migrations/` e `tests/` são montadas no container: mudou o código, basta `docker compose restart bot`, sem reconstruir a imagem.
 
 Ambos com `restart: unless-stopped`, para voltar sozinhos depois de queda de luz ou reboot.
 
@@ -244,14 +247,14 @@ Ambos com `restart: unless-stopped`, para voltar sozinhos depois de queda de luz
 Cada etapa termina com algo funcionando no grupo.
 
 1. **Bot papagaio:** criar o bot no BotFather, responder no grupo, `/id` e o filtro de `ALLOWED_CHAT_IDS`
-2. **Banco e `/peso`:** Postgres, migrações e o comando mais simples, que testa o banco de ponta a ponta sem IA
+2. **Docker, banco e `/peso`:** bot e Postgres no Docker Compose (D-035), migrações e o comando mais simples, que testa o banco de ponta a ponta sem IA
 3. **`/r` com o Gemini:** registro chamando a IA para a descrição inteira, com o total do dia
 4. **Base de alimentos:** `parser.py` e `alimentos.py`; a IA passa a ser chamada só para alimentos novos
 5. **Botões:** corrigir e apagar
 6. **`/retro`**
 7. **`/dia` e `/semana`**
 8. **`/exportar`:** os dois CSVs
-9. **Docker e deploy** no servidor
+9. **Deploy** no servidor (o Docker já vem da etapa 2)
 
 ### Fora do MVP
 - Fotos de pratos

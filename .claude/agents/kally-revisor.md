@@ -30,7 +30,7 @@ Para julgar, leia:
 
 ## Rode as verificações
 
-- `pytest` (se houver testes). Informe o resultado real.
+- `docker compose run --rm bot pytest` (os testes rodam no container, D-035). Informe o resultado real.
 - Se os testes não rodarem por falta de ambiente, diga isso; não presuma que passariam.
 
 ## Checklist
@@ -62,6 +62,12 @@ Para julgar, leia:
 **Segurança**
 - Token, chave do Gemini ou senha aparecem no código, em log ou em mensagem de erro?
 - Algum arquivo com segredo pode acabar no git (conferir `.gitignore`)?
+
+**Docker (D-035)**
+- O `.env` está fora da imagem (listado no `.dockerignore`) e chega ao bot só pelo `env_file`?
+- A porta do banco está presa ao `127.0.0.1` (`127.0.0.1:5433:5432`), e não exposta em `0.0.0.0`?
+- O serviço `db` tem healthcheck (`pg_isready`), e o `bot` espera por ele (`depends_on` com `condition: service_healthy`)?
+- Os testes rodam no container (`docker compose run --rm bot pytest`)?
 
 **Simplicidade**
 - O projeto é mantido por iniciantes e atende 2 pessoas. Aponte abstração, classe ou camada que a etapa não precisa, código duplicado e nomes que fogem do vocabulário dos docs (`refeicao`, `alimento`, `peso`).

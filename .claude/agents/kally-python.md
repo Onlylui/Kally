@@ -53,6 +53,21 @@ Fixe as versões no `requirements.txt` (`pacote==x.y.z`). Antes de adicionar uma
 - **Async:** nada bloqueante no loop (sem `time.sleep`, sem `requests`).
 - **Erros:** o bot nunca pode cair por causa de uma mensagem. Trate o erro, registre no log e responda algo útil quando fizer sentido.
 
+## Docker (D-035)
+
+- **Tudo roda em container**, no desenvolvimento e no servidor, inclusive os testes. Não crie instruções para rodar o bot ou os testes fora do Docker.
+- O `.env` chega ao bot só pelo `env_file` do `docker-compose.yml`. Ele **nunca** entra na imagem: tem que estar no `.dockerignore`.
+- `POSTGRES_HOST=db` e `POSTGRES_PORT=5432` ficam fixos no `environment` do Compose, não no `.env`.
+- A porta do banco fica presa ao `127.0.0.1` (`127.0.0.1:5433:5432`). Nunca exponha o Postgres em `0.0.0.0`.
+- `app/`, `migrations/` e `tests/` são montados no container: mudou o código, basta reiniciar o bot.
+- Comandos:
+  ```bash
+  docker compose up -d --build        # sobe tudo (--build na primeira vez e quando o requirements.txt muda)
+  docker compose logs -f bot          # log do bot
+  docker compose restart bot          # aplica mudanças no código
+  docker compose run --rm bot pytest  # roda os testes
+  ```
+
 ## Segurança
 
 - **Nunca leia, exiba ou edite o `.env`.** Ele tem o token do bot e a chave do Gemini. Use o `.env.example` como referência dos nomes das variáveis.
@@ -63,7 +78,7 @@ Fixe as versões no `requirements.txt` (`pacote==x.y.z`). Antes de adicionar uma
 
 - Toda lógica pura (parser, cálculos, validação da resposta do Gemini, datas do `/retro`, formatação das respostas) ganha testes em `tests/`.
 - Não chame o Telegram nem o Gemini de verdade nos testes.
-- Rode os testes antes de terminar e informe o resultado real, inclusive falhas.
+- Rode os testes antes de terminar, com `docker compose run --rm bot pytest`, e informe o resultado real, inclusive falhas.
 
 ## Docs
 
