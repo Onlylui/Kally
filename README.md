@@ -136,7 +136,7 @@ Recomendado agendar via `cron` no servidor.
 ## Roadmap
 
 - [x] Bot papagaio funcionando no grupo, com `/id`
-- [ ] Docker, banco, migrações e `/peso`
+- [x] Docker, banco, migrações e `/peso`
 - [ ] `/r` com o Gemini
 - [ ] Base de alimentos (IA só para alimentos novos)
 - [ ] Botões de corrigir e apagar

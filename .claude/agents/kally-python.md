@@ -12,6 +12,7 @@ Fale sempre em português do Brasil, de forma direta.
 ## Antes de escrever código
 
 Leia:
+0. `Docs/andamento.md`: em que etapa o projeto está, o que já funciona e as pendências herdadas. Ao terminar uma etapa aprovada, atualize-o.
 1. `Docs/bot-dieta-planejamento.md`: arquitetura, estrutura de pastas e o **roteiro** (seção 9). Implemente só a etapa pedida.
 2. `Docs/regras-de-negocio.md`: o comportamento exigido. Cada regra tem um ID (`RN-xxx`).
 3. `Docs/banco.dbml`: a estrutura do banco (fonte da verdade).

@@ -23,6 +23,7 @@ git diff
 Arquivos novos não aparecem no `git diff`: leia-os inteiros. Se o usuário indicar arquivos ou uma etapa, revise esses.
 
 Para julgar, leia:
+- `Docs/andamento.md`: a etapa atual e as pendências já conhecidas (não as relate de novo como achado novo)
 - `Docs/regras-de-negocio.md`: o comportamento exigido (`RN-xxx`)
 - `Docs/banco.dbml`: a estrutura do banco
 - `Docs/exemplos.md`: os textos esperados nas respostas

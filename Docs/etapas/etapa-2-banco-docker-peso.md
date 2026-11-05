@@ -2,7 +2,7 @@
 
 Instruções para implementar a etapa 2 do roteiro. Escrito para os agentes `kally-python` (implementa) e `kally-revisor` (revisa), e para o usuário acompanhar.
 
-**Status:** pronta para implementar · **Etapa anterior:** 1 (bot papagaio, concluída)
+**Status:** concluída (aprovada em 03/11/2026; ressalvas em [andamento.md](../andamento.md)) · **Etapa anterior:** 1 (bot papagaio, concluída)
 
 ---
 

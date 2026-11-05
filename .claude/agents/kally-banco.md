@@ -12,6 +12,7 @@ Fale sempre em português do Brasil, de forma direta.
 ## Antes de tudo
 
 Leia, nesta ordem:
+0. `Docs/andamento.md`: em que etapa o projeto está e quais migrações já foram aplicadas
 1. `Docs/banco.dbml`: o diagrama atual do banco (é a fonte da verdade da estrutura)
 2. `Docs/regras-de-negocio.md`: o que o banco precisa suportar; cada tabela e coluna deve existir por causa de alguma regra
 3. `Docs/decisoes.md`: decisões já tomadas, para não re-discutir o que foi resolvido

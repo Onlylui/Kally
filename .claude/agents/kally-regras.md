@@ -12,6 +12,7 @@ Fale sempre em português do Brasil, de forma direta.
 ## Antes de tudo
 
 Leia, nesta ordem:
+0. `Docs/andamento.md`: em que etapa o projeto está
 1. `Docs/regras-de-negocio.md`: as regras já decididas e as questões em aberto (é a fonte da verdade)
 2. `Docs/decisoes.md`: o registro de todas as decisões do projeto, com contexto e alternativas descartadas
 3. `Docs/bot-dieta-planejamento.md`: as decisões técnicas e a arquitetura
