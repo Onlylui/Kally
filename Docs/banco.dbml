@@ -23,17 +23,17 @@ Table alimentos {
   id bigserial [pk]
   nome text [not null, unique, note: 'Texto que a pessoa escreveu, normalizado: minúsculo, sem acento, singular, sem quantidade. Ex.: 150 g de arroz → arroz (D-034)']
   kcal_100g numeric [not null, note: 'CHECK entre 0 e 900 (RN-016)']
-  proteina_100g numeric [not null]
-  carbo_100g numeric [not null]
-  gordura_100g numeric [not null]
+  proteina_100g numeric [not null, note: 'CHECK >= 0']
+  carbo_100g numeric [not null, note: 'CHECK >= 0']
+  gordura_100g numeric [not null, note: 'CHECK >= 0']
   porcao_g numeric [not null, note: 'Gramas de 1 porção padrão. CHECK > 0']
   porcao_nome text [not null, note: 'Ex.: 1 bife, 1 unidade, 1 colher de servir']
-  origem text [not null, default: 'ia', note: 'ia | manual (corrigido direto no banco, D-028)']
+  origem text [not null, default: 'ia', note: 'ia | manual (corrigido direto no banco, D-028). CHECK IN (ia, manual)']
   criado_em timestamptz [not null, default: `now()`]
 
   Note: '''
   Base própria de alimentos, com valores por 100 g (RN-016, D-026).
-  Busca só pelo nome, sem apelidos (D-030). O Gemini fornece só os valores (D-034).
+  Busca só pelo nome, sem apelidos (D-030). O nome vem do texto da pessoa; o Gemini fornece os valores (D-034).
   Começa vazia e é preenchida pelo Gemini (D-027).
   '''
 }
@@ -44,10 +44,10 @@ Table refeicoes {
   chat_id bigint [not null]
   message_id bigint [note: 'Mensagem de resposta do bot, onde ficam os botões (RN-015)']
   descricao text [not null, note: 'Texto enviado no /r ou /retro']
-  kcal integer [not null, note: 'Soma dos itens, ou o valor digitado quando kcal_manual']
-  proteina_g numeric [not null]
-  carbo_g numeric [not null]
-  gordura_g numeric [not null]
+  kcal integer [not null, note: 'Soma dos itens, ou o valor digitado quando kcal_manual. CHECK >= 0']
+  proteina_g numeric [not null, note: 'CHECK >= 0']
+  carbo_g numeric [not null, note: 'CHECK >= 0']
+  gordura_g numeric [not null, note: 'CHECK >= 0']
   data date [not null, note: 'Dia em que a refeição conta, no fuso de São Paulo, calculado ao gravar (RN-001, RN-007)']
   hora time [note: 'Vazia no /retro sem hora (RN-014)']
   retroativo boolean [not null, default: false, note: 'Registrado com /retro (RN-014)']

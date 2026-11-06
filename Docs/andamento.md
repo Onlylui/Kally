@@ -2,8 +2,8 @@
 
 Onde o projeto está no [roteiro](bot-dieta-planejamento.md#9-roteiro-de-desenvolvimento). **Leia este arquivo antes de começar qualquer etapa** e atualize-o quando uma etapa for aprovada pelo usuário.
 
-**Etapa atual:** 3 — `/r` com o Gemini (ainda sem plano escrito)
-**Última atualização:** 03/11/2026
+**Etapa atual:** 3 — `/r` com o Gemini (em andamento)
+**Última atualização:** 04/11/2026
 
 ---
 
@@ -13,7 +13,7 @@ Onde o projeto está no [roteiro](bot-dieta-planejamento.md#9-roteiro-de-desenvo
 |---|---|---|---|
 | 1 | Bot papagaio, `/id` e filtro de `ALLOWED_CHAT_IDS` | ✅ concluída | — |
 | 2 | Docker, banco, migrações e `/peso` | ✅ concluída (aprovada em 03/11/2026) | [etapa-2-banco-docker-peso.md](etapas/etapa-2-banco-docker-peso.md) |
-| 3 | `/r` com o Gemini | ⏳ próxima | a escrever |
+| 3 | `/r` com o Gemini | 🔧 em andamento | [etapa-3-r-gemini.md](etapas/etapa-3-r-gemini.md) · [decisões](etapas/etapa-3-decisoes.md) |
 | 4 | Base de alimentos (IA só para alimentos novos) | ⬜ | — |
 | 5 | Botões de corrigir e apagar | ⬜ | — |
 | 6 | `/retro` | ⬜ | — |

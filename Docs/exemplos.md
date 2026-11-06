@@ -17,7 +17,7 @@ Para simplificar, as seções 1 a 3 mostram só as calorias de cada item. O bot 
 João (08:12): /r pão com ovo e café com leite
 
 KALLY: João: +320 kcal · total hoje: 320 kcal
-       pão francês 150 · ovo mexido 90 · café com leite 80
+       pão 150 · ovo 90 · café com leite 80
        [✏️ Corrigir] [❌ Apagar]
 ```
 
@@ -26,7 +26,7 @@ KALLY: João: +320 kcal · total hoje: 320 kcal
 Maria (12:30): /r 150 g de arroz, 100 g de feijão, 120 g de frango grelhado e salada
 
 KALLY: Maria: +540 kcal · total hoje: 860 kcal
-       arroz 195 · feijão 75 · frango 200 · salada 70
+       arroz 195 · feijão 75 · frango grelhado 200 · salada 70
        [✏️ Corrigir] [❌ Apagar]
 ```
 
@@ -36,7 +36,7 @@ Não importa se foi café, almoço ou lanche: cada `/r` é **um registro**, com 
 João (16:05): /r banana, 1 iogurte e um punhado de castanhas
 
 KALLY: João: +330 kcal · total hoje: 1.300 kcal
-       banana 90 · iogurte natural 120 · castanhas (30 g) 120
+       banana 90 · iogurte 120 · castanha 120
        [✏️ Corrigir] [❌ Apagar]
 ```
 
@@ -46,7 +46,7 @@ Também vira um registro só, no horário da mensagem.
 Maria (21:40): /r esqueci de mandar: lanche da tarde pão de queijo, e jantei sopa de legumes
 
 KALLY: Maria: +420 kcal · total hoje: 1.890 kcal
-       pão de queijo (2 un.) 180 · sopa de legumes 240
+       pão de queijo 180 · sopa de legumes 240
        [✏️ Corrigir] [❌ Apagar]
 ```
 
@@ -65,12 +65,39 @@ João: /r kkkkk
 KALLY: Não identifiquei nenhum alimento. Descreva o que comeu, ex.: /r 150 g de arroz e 1 filé de frango
 ```
 
-### Mensagem esquecendo o comando · RN-013
-Nada é registrado; o bot avisa para ninguém achar que registrou.
+### Comida misturada com outra coisa · RN-016, D-039
+Registra o que é comida e avisa o que ficou de fora.
+```
+João: /r 1 banana kkkk
+
+KALLY: João: +90 kcal · total hoje: 90 kcal
+       banana 100 g · 90 kcal
+       Ignorei: kkkk
+       [✏️ Corrigir] [❌ Apagar]
+```
+
+### Descrição muito longa · RN-013, D-037
+Acima de 500 caracteres, nada é registrado e o Gemini não é chamado.
+```
+João: /r (mensagem com mais de 500 caracteres)
+
+KALLY: Descrição muito longa. Use até 500 caracteres.
+```
+
+### Banco fora do ar · RN-013
+Vale para `/r` e `/peso`. O texto não diz que nada foi registrado, porque a confirmação da gravação pode se perder.
+```
+João: /r 1 banana
+
+KALLY: Não consegui confirmar o registro agora. Tente de novo em instantes.
+```
+
+### Mensagem sem comando · RN-013, D-036
+Nada é registrado e o bot fica em silêncio, para o grupo poder conversar.
 ```
 João: almocei arroz, feijão e bife
 
-KALLY: Para registrar, use /r seguido do que comeu. Ex.: /r arroz, feijão e bife
+(sem resposta)
 ```
 
 ---
@@ -424,7 +451,7 @@ Sem balança, a palma da mão (sem os dedos, na espessura dela) equivale a uns 1
 Maria: /r picanha do tamanho de 2 palmas da mão e 1 linguiça
 
 KALLY: Maria: +820 kcal · total hoje: 1.540 kcal
-       picanha 200 g · 580 kcal · linguiça toscana 80 g (1 un.) · 240 kcal
+       picanha 200 g · 580 kcal · linguiça 80 g (1 un.) · 240 kcal
        [✏️ Corrigir] [❌ Apagar]
 ```
 
@@ -434,6 +461,14 @@ Nada é registrado.
 João: /r yakisoba de frango
 
 KALLY: Não consegui estimar agora. Nada foi registrado, tente de novo em instantes.
+```
+
+### Erro inesperado · RN-013, D-040
+Vale para `/r` e `/peso`, quando a falha não é do Gemini nem do banco. O erro vai para o log.
+```
+João: /r yakisoba de frango
+
+KALLY: Algo deu errado. Tente de novo em instantes.
 ```
 
 ### Gemini fora do ar, mas tudo está na base · RN-017

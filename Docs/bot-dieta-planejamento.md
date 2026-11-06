@@ -65,7 +65,7 @@ Se o Gemini falhar, nada é registrado (RN-017).
 1. Conversar com **@BotFather**
 2. `/newbot` → escolher nome e username
 3. Guardar o **token** gerado (vai no `.env`; nunca subir no GitHub)
-4. `/setprivacy` → **Disable**, para o bot ver as mensagens sem comando e avisar quando alguém esquecer o `/r` (RN-013)
+4. `/setprivacy` → **Enable**: o bot só precisa receber comandos e fica em silêncio na conversa (D-036). Ao mudar essa opção com o bot já no grupo, remova-o e adicione-o de novo
 5. `/setcommands` → cadastrar `r`, `retro`, `dia`, `semana`, `peso`, `exportar`, para aparecerem no menu do Telegram
 6. Criar o grupo e adicionar o bot
 
@@ -90,10 +90,10 @@ O diagrama está em [`banco.dbml`](banco.dbml); para visualizar, cole o arquivo 
 | id | BIGSERIAL (PK) | |
 | nome | TEXT (UNIQUE) | o texto que a pessoa escreveu, normalizado: minúsculo, sem acento, singular, sem quantidade (D-034) |
 | kcal_100g | NUMERIC | entre 0 e 900 |
-| proteina_100g / carbo_100g / gordura_100g | NUMERIC | |
-| porcao_g | NUMERIC | gramas de 1 porção padrão |
+| proteina_100g / carbo_100g / gordura_100g | NUMERIC | `>= 0` |
+| porcao_g | NUMERIC | gramas de 1 porção padrão, `> 0` |
 | porcao_nome | TEXT | ex.: "1 bife", "1 unidade", "1 colher de servir" |
-| origem | TEXT | `ia` (ou `manual`, quando corrigido no banco) |
+| origem | TEXT | `ia` (padrão) ou `manual`, quando corrigido no banco; `CHECK` só aceita esses dois |
 | criado_em | TIMESTAMPTZ | |
 
 A busca é só pelo `nome` normalizado (D-030); o `UNIQUE` já cria o índice.
@@ -106,8 +106,8 @@ A busca é só pelo `nome` normalizado (D-030); o `UNIQUE` já cria o índice.
 | telegram_id | BIGINT (FK → usuarios) | |
 | chat_id / message_id | BIGINT | mensagem de resposta do bot, para os botões (RN-015) |
 | descricao | TEXT | o texto enviado |
-| kcal | INT | soma dos itens, ou o valor digitado quando `kcal_manual` |
-| proteina_g / carbo_g / gordura_g | NUMERIC | |
+| kcal | INT | soma dos itens, ou o valor digitado quando `kcal_manual`; `>= 0` |
+| proteina_g / carbo_g / gordura_g | NUMERIC | `>= 0` |
 | data | DATE | dia em que a refeição conta, no fuso de São Paulo (RN-001) |
 | hora | TIME (nullable) | vazia no retroativo sem hora (RN-014) |
 | retroativo | BOOLEAN | registrado com `/retro` |
@@ -190,14 +190,14 @@ kally/
 ├── pytest.ini          # configuração dos testes (rodar com: docker compose run --rm bot pytest)
 ├── migrations/
 │   └── 001_inicial.sql # todas as tabelas do MVP
-├── tests/              # parser, cálculos e validação do Gemini
+├── tests/              # lógica pura, Gemini com servidor falso e Postgres real em kally_teste
 └── app/
     ├── main.py         # inicia o bot e aplica as migrações
     ├── handlers.py     # comandos: /r, /retro, /dia, /semana, /peso, /exportar, /id
     ├── botoes.py       # corrigir e apagar (RN-015)
     ├── parser.py       # separa itens, quantidades e datas do /retro
     ├── alimentos.py    # busca na base e completa com o Gemini (RN-016)
-    ├── gemini.py       # chamada à IA, schema e validação
+    ├── gemini.py       # chamada à IA, schema, prompt, normalização do nome e validação
     ├── relatorios.py   # textos do /dia e /semana, geração dos CSVs
     └── db.py           # conexão e consultas no Postgres
 ```
@@ -227,6 +227,8 @@ Tudo roda em Docker Compose desde a etapa 2, no desenvolvimento e no servidor, i
 - **bot**: imagem do código Python (`Dockerfile`), sobe só depois do Postgres estar saudável. Lê o `.env` por `env_file` (o `.env` nunca entra na imagem; está no `.dockerignore`). Encontra o banco em `db:5432`. As pastas `app/`, `migrations/` e `tests/` são montadas no container: mudou o código, basta `docker compose restart bot`, sem reconstruir a imagem.
 
 Ambos com `restart: unless-stopped`, para voltar sozinhos depois de queda de luz ou reboot.
+
+**Banco de teste:** os testes de banco usam `kally_teste`, no mesmo servidor do Compose. O nome é fixo no código (`tests/conftest.py`). A cada teste, o banco é recriado pelo banco de manutenção `postgres`, recebe as migrações reais e é apagado ao final. Os testes nunca conectam ao `POSTGRES_DB` e se recusam a rodar se ele se chamar `kally_teste`. Banco inacessível faz o teste falhar, nunca pular.
 
 ---
 

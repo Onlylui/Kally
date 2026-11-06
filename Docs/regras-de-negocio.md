@@ -146,14 +146,19 @@ A refeição só é registrada com o comando `/r <descrição>` (D-017, D-021). 
 ```
 João: /r arroz, feijão, 1 bife e salada
 KALLY: João: +650 kcal · total hoje: 1.420 kcal
-       arroz 200 kcal · feijão 140 kcal · bife 250 kcal · salada 60 kcal
+       arroz 200 g · 260 kcal · feijão 100 g · 75 kcal · bife 120 g · 250 kcal · salada 100 g · 65 kcal
        [✏️ Corrigir] [❌ Apagar]
 ```
 
 - `/r` sem descrição → "Descreva o que comeu, ex.: /r 150 g de arroz e 1 filé de frango".
+- A descrição tem **limite de 500 caracteres** (D-037), contados depois de reduzir os espaços repetidos e remover as linhas vazias. Acima disso, nada é registrado e o Gemini não é chamado: "Descrição muito longa. Use até 500 caracteres."
+- A descrição é guardada como a pessoa escreveu, sem essa limpeza.
 - **Cada `/r` é um registro só** (D-022), mesmo que descreva várias coisas ou várias refeições. O bot não pergunta nem guarda se foi café, almoço ou jantar.
 - Se o Gemini não reconhecer nenhum alimento, o bot não registra e pede para descrever melhor.
-- **Mensagem sem comando** → o bot responde uma vez: "Para registrar, use /r seguido do que comeu". Assim ninguém acha que registrou quando esqueceu o comando (proposta).
+- **Mensagem sem comando** → o bot fica em silêncio, para o grupo poder conversar (D-036).
+- Quando a mensagem é de outro dia (enviada antes da meia-noite e processada depois), a resposta mostra `total de 31/10` no lugar de `total hoje` (RN-007).
+- **Banco fora do ar** durante `/r` ou `/peso` → "Não consegui confirmar o registro agora. Tente de novo em instantes." O texto não afirma que nada foi registrado, porque a confirmação da gravação pode se perder com a refeição já gravada.
+- **Erro inesperado** fora de banco durante `/r` ou `/peso` → "Algo deu errado. Tente de novo em instantes." O erro vai para o log (D-040).
 
 ### RN-014 — Registro retroativo
 **Status:** decidida
@@ -190,7 +195,7 @@ O bot guarda as calorias e os macros **por 100 g** de cada alimento que já viu,
 
 | Campo | Exemplo |
 |---|---|
-| nome | arroz branco cozido |
+| nome | arroz |
 | kcal por 100 g | 130 |
 | proteína, carbo e gordura por 100 g | 2,5 · 28 · 0,3 |
 | porção padrão | 1 colher de servir = 45 g |
@@ -205,16 +210,20 @@ O bot guarda as calorias e os macros **por 100 g** de cada alimento que já viu,
    - sem quantidade (`salada`): 1 porção padrão.
 3. Normaliza o nome do alimento como a pessoa escreveu (minúsculo, sem acento, singular): `2 Ovos` → `ovo`. Procura na base por esse nome. Não há apelidos (D-030): "arroz" e "arroz branco" são alimentos diferentes.
 4. **Todos encontrados:** a conta é feita localmente, sem IA: `kcal = kcal por 100 g × gramas ÷ 100`.
-5. **Algum não encontrado:** só esses itens vão ao Gemini, que devolve os valores por 100 g, a porção padrão e os gramas estimados. O alimento entra na base com o nome que a pessoa escreveu, não com um nome dado pelo Gemini (D-034). O Gemini considera o alimento já preparado, na forma em que é comido: "arroz" é arroz cozido (D-031). Os alimentos novos entram na base, e a conta segue igual.
+5. **Algum não encontrado:** só esses itens vão ao Gemini, que devolve os valores por 100 g, a porção padrão e os gramas estimados. O alimento entra na base com o nome que a pessoa escreveu, não com um nome dado pelo Gemini (D-034): quando recebe a descrição, o Gemini devolve o trecho escrito pela pessoa, no singular, e o bot só tira maiúsculas, acentos e espaços nas pontas. Se o nome já existe na base, a base vence: ela nunca é sobrescrita, e o item usa os valores dela. O Gemini considera o alimento já preparado, na forma em que é comido: "arroz" é arroz cozido (D-031). Os alimentos novos entram na base, e a conta segue igual.
 6. **O bot não consegue separar a descrição:** a mensagem inteira vai ao Gemini, que devolve os itens já separados, e os alimentos novos entram na base.
+7. **Trecho que não é comida no meio da descrição:** o Gemini o devolve à parte, os alimentos reconhecidos são registrados e a resposta avisa: `Ignorei: kkkk` (D-039).
 
 **Na resposta**, cada item mostra os gramas usados (`bife 120 g · 250 kcal`), para que a pessoa veja na hora se a porção padrão não bate com o que comeu e corrija.
 
 **Validação do que vem do Gemini**, antes de entrar na base:
 - kcal por 100 g entre 0 e 900 (nenhum alimento passa disso; óleo puro tem ~880);
-- os macros precisam bater com as calorias (4 × proteína + 4 × carbo + 9 × gordura, com margem de 20%).
+- os macros precisam bater com as calorias: a diferença entre 4 × proteína + 4 × carbo + 9 × gordura e as kcal pode ser de até 20% das kcal, com mínimo de 10 kcal. Bebidas alcoólicas dispensam essa conta, porque o álcool tem calorias fora dos macros (D-038);
+- cada macro entre 0 e 100 g por 100 g, em todo alimento, inclusive bebidas alcoólicas (D-040);
+- gramas do item e porção padrão maiores que zero e de até 10.000 g, com o limite exato aceito (D-040);
+- nome, trecho e porção preenchidos, sem o caractere NUL.
 
-Se não passar, conta como resposta inválida (RN-017).
+Se um item não passar, a resposta inteira conta como inválida (RN-017).
 
 ### RN-017 — Falha do Gemini
 **Status:** decidida

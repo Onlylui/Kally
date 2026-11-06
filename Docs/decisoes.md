@@ -48,6 +48,11 @@ Diário de bordo do projeto: cada decisão importante, quando foi tomada, por qu
 | D-033 | 2026-11-01 | Apagar remove o registro de verdade (`DELETE`), depois de confirmação | Técnica | vigente |
 | D-034 | 2026-11-01 | O nome do alimento na base é o texto que a pessoa escreveu, não o nome dado pelo Gemini | Técnica | vigente |
 | D-035 | 2026-11-02 | Tudo roda em Docker, também no desenvolvimento; sem execução local | Técnica | vigente |
+| D-036 | 2026-11-04 | Mensagem sem comando recebe silêncio, sem aviso | Produto | vigente |
+| D-037 | 2026-11-04 | Descrição do `/r` limitada a 500 caracteres | Negócio | vigente |
+| D-038 | 2026-11-04 | Coerência de macros com margem de 20% (mínimo de 10 kcal); bebida alcoólica dispensa | Técnica | vigente |
+| D-039 | 2026-11-04 | Lixo misturado aos alimentos é ignorado com aviso, sem cancelar o registro | Negócio | vigente |
+| D-040 | 2026-11-05 | Tetos de 10.000 g e de 100 g de macro por 100 g na resposta do Gemini; resposta para erro inesperado | Negócio | vigente |
 
 ---
 
@@ -239,6 +244,7 @@ Diário de bordo do projeto: cada decisão importante, quando foi tomada, por qu
 - **Decisão:** o nome do alimento na base é o trecho que a pessoa escreveu, normalizado (minúsculo, sem acento, singular, sem quantidade): `150 g de arroz` → `arroz`. O Gemini só fornece os valores por 100 g e a porção padrão.
 - **Motivo:** quem escreve sempre do mesmo jeito sempre encontra o mesmo alimento, sem duplicatas e sem nova chamada à IA.
 - **Consequência:** "arroz" e "arroz integral" continuam sendo alimentos diferentes, como deve ser.
+- **Quando a mensagem inteira vai ao Gemini:** ele devolve o trecho escrito pela pessoa, no singular, e o código só tira maiúsculas, acentos e espaços nas pontas. O nome depende do prompt, sem conferência em código: o Gemini pode devolver "pão francês" para "pão", e isso pode entrar na base. É um risco aceito na etapa 3; a resposta mostra nome e gramas, e a correção é direto no banco (D-028).
 - **Aceito pelos usuários:** formas diferentes de escrever a mesma coisa ("arroz", "arroz branco") viram alimentos repetidos na base. Isso não é problema: a base reflete o que cada um digita.
 
 ### D-035 — Só Docker, também no desenvolvimento
@@ -251,3 +257,31 @@ Diário de bordo do projeto: cada decisão importante, quando foi tomada, por qu
   - O código é montado no container (bind mount): mudou o código, basta reiniciar o bot, sem reconstruir a imagem.
   - O banco fica acessível na máquina só em `127.0.0.1:5433`, para consulta com ferramentas como DBeaver. Não conflita com o Postgres local.
   - O Docker sai da etapa 9 e entra na etapa 2 do roteiro.
+
+### D-036 — Silêncio em mensagem sem comando
+- **Contexto:** a RN-013 propunha avisar quem esquecesse o `/r`, e o papagaio respondia a toda mensagem.
+- **Decisão:** mensagem sem comando não gera resposta. O papagaio sai e nada o substitui.
+- **Motivo:** o grupo precisa poder conversar sem o bot responder a cada mensagem.
+- **Consequências:** o bot não precisa ler a conversa, então a privacidade no BotFather volta para `Enable`. Quem esquecer o `/r` não recebe aviso.
+
+### D-037 — Limite da descrição
+- **Decisão:** a descrição do `/r` tem até 500 caracteres, contados no texto limpo (espaços repetidos reduzidos e linhas vazias removidas). Acima disso, o bot avisa e não chama o Gemini.
+- **Motivo:** limita o gasto de tokens por mensagem; uma refeição cabe com folga nesse tamanho.
+
+### D-038 — Coerência de macros
+- **Decisão:** a resposta do Gemini é aceita se `abs(4P + 4C + 9G - kcal) <= max(20% de kcal, 10)`. O campo `alcoolico`, que existe só na resposta e não é guardado, dispensa essa conta.
+- **Motivo:** o álcool tem cerca de 7 kcal/g fora dos macros, então cerveja e vinho sempre falhariam. O mínimo de 10 kcal evita recusar alimentos com poucas calorias por diferenças pequenas.
+
+### D-039 — Item misturado com lixo
+- **Decisão:** se a descrição mistura alimentos com algo que não é comida, os alimentos são registrados e a resposta avisa: `Ignorei: kkkk`. Só quando não sobra nenhum alimento o bot não registra (RN-013).
+- **Motivo:** cancelar tudo por causa de um "kkkk" obrigaria a reenviar a mensagem, e o aviso mostra o que ficou de fora.
+
+### D-040 — Tetos na resposta do Gemini e erro inesperado
+- **Contexto:** a revisão da etapa 3 mostrou que valores absurdos do Gemini passavam pela validação. Gramas gigantes estouravam o cálculo, e o erro fora de banco ficava só no log, sem resposta à pessoa.
+- **Decisão:**
+  - `gramas` e `porcao_g` vão até 10.000 g por item, com o limite exato aceito.
+  - Proteína, carbo e gordura vão até 100 g por 100 g, em todo alimento, inclusive com `alcoolico`, que só dispensa a coerência de macros (D-038).
+  - Acima disso, a resposta inteira é inválida: vale o texto da RN-017 e nada é gravado.
+  - Erro inesperado fora de banco no `/r` e no `/peso` responde "Algo deu errado. Tente de novo em instantes." e vai para o log. O texto de banco fora do ar continua só para erro de banco.
+- **Motivo:** 100 g de alimento não têm mais de 100 g de um macro, e 10 kg por item já cobre qualquer refeição real. A pessoa não deve ficar sem resposta quando o bot falha.
+- **Revisar se:** o aviso de erro inesperado levar a registros repetidos, porque ele também aparece quando só o envio da confirmação falhou.
