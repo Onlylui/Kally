@@ -2,7 +2,7 @@
 
 **KALLY** é um bot de Telegram para contar calorias em grupo. Os participantes registram o que comeram, o bot calcula calorias e macros com uma base própria de alimentos (usando o Gemini só para alimentos novos), guarda tudo num banco PostgreSQL e mostra o total do dia e da semana de cada um. O histórico pode ser exportado em CSV para análise.
 
-> 🚧 **Status:** em desenvolvimento. Funcionam o `/id`, o `/peso` e o bot papagaio provisório.
+> 🚧 **Status:** em desenvolvimento. Funcionam o `/id`, o `/peso` e o `/r`, ainda sem a base de alimentos (todo `/r` chama o Gemini) e sem os botões. Mensagens sem comando não recebem resposta.
 
 ```
 João: /r arroz, feijão, 1 bife e salada
@@ -64,7 +64,7 @@ Como usa polling, **não precisa de porta aberta, IP fixo, domínio ou HTTPS**. 
 
 1. Abra o **@BotFather** e envie `/newbot`
 2. Escolha nome e username, e guarde o **token** gerado
-3. Envie `/setprivacy`, selecione o bot e escolha **Disable** (para ele avisar quando alguém esquecer o `/r`)
+3. Envie `/setprivacy`, selecione o bot e escolha **Enable** (ele só precisa receber comandos). Se o bot já estiver no grupo, remova-o e adicione-o de novo para valer
 4. Crie o grupo e adicione o bot
 
 ---
@@ -97,6 +97,8 @@ docker compose down                 # para tudo (os dados continuam no volume)
 > ⚠️ `docker compose down -v` **apaga o volume e todos os dados**. Só para recomeçar do zero.
 
 O código de `app/`, `migrations/` e `tests/` é montado no container: depois de editar, basta `docker compose restart bot`.
+
+Os testes de banco rodam no Postgres do Compose, com o `db` no ar, num banco separado chamado `kally_teste`. Ele é criado e apagado a cada teste; o banco real não é tocado.
 
 O banco fica acessível só na própria máquina, em `127.0.0.1:5433` (para DBeaver ou pgAdmin). A porta 5433 evita conflito com um Postgres local na 5432.
 

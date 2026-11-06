@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 from telegram.ext import ApplicationHandlerStop
 
-from app.handlers import deve_processar, ecoar, eh_comando_id, filtrar_chats
+from app.handlers import deve_processar, eh_comando_id, filtrar_chats
 
 PERMITIDOS = {-100123}
 
@@ -96,10 +96,3 @@ async def test_filtro_barra_quando_da_erro():
     context = SimpleNamespace(bot_data={})
     with pytest.raises(ApplicationHandlerStop):
         await filtrar_chats(criar_update(-100123, "oi"), context)
-
-
-@pytest.mark.asyncio
-async def test_ecoar_repete_o_texto():
-    update = criar_update(-100123, "almocei arroz")
-    await ecoar(update, criar_context())
-    assert update.effective_message.respostas == ["almocei arroz"]

@@ -5,9 +5,9 @@ import os
 
 from dotenv import load_dotenv
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, TypeHandler, filters
+from telegram.ext import Application, CommandHandler, TypeHandler, filters
 
-from app import db, handlers
+from app import db, gemini, handlers
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,8 @@ def configurar_log() -> None:
     )
     # O httpx registra a URL de cada requisição, e a URL do Telegram contém o token.
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    # O SDK do Gemini registra detalhes das chamadas em INFO.
+    logging.getLogger("google_genai").setLevel(logging.WARNING)
 
 
 async def iniciar_banco(app: Application) -> None:
@@ -65,6 +67,27 @@ async def fechar_banco(app: Application) -> None:
         await pool.close()
 
 
+def ler_config_gemini() -> tuple[str, str]:
+    """Devolve a chave e o modelo do Gemini. Sem eles o bot não sobe."""
+    chave = os.getenv("GEMINI_API_KEY")
+    modelo = os.getenv("GEMINI_MODEL")
+    if not chave:
+        raise SystemExit("Faltou o GEMINI_API_KEY no .env.")
+    if not modelo:
+        raise SystemExit("Faltou o GEMINI_MODEL no .env.")
+    return chave, modelo
+
+
+def registrar_handlers(app: Application) -> None:
+    """Liga os comandos. Mensagem sem comando não tem handler: o bot fica em silêncio."""
+    # RN-002: o filtro roda no grupo -1, antes de todos os outros handlers.
+    app.add_handler(TypeHandler(Update, handlers.filtrar_chats), group=-1)
+    app.add_handler(CommandHandler("id", handlers.comando_id, filters=filters.UpdateType.MESSAGE))
+    app.add_handler(CommandHandler("peso", handlers.comando_peso, filters=filters.UpdateType.MESSAGE))
+    app.add_handler(CommandHandler("r", handlers.comando_r, filters=filters.UpdateType.MESSAGE))
+    app.add_error_handler(handlers.tratar_erro)
+
+
 def main() -> None:
     configurar_log()
     load_dotenv()
@@ -72,6 +95,8 @@ def main() -> None:
     token = os.getenv("TELEGRAM_TOKEN")
     if not token:
         raise SystemExit("Faltou o TELEGRAM_TOKEN no .env.")
+
+    chave_gemini, modelo_gemini = ler_config_gemini()
 
     try:
         permitidos = ler_chat_ids(os.getenv("ALLOWED_CHAT_IDS"))
@@ -91,18 +116,10 @@ def main() -> None:
         .build()
     )
     app.bot_data["allowed_chat_ids"] = permitidos
+    app.bot_data["gemini"] = gemini.criar_cliente(chave_gemini)
+    app.bot_data["gemini_modelo"] = modelo_gemini
 
-    # RN-002: o filtro roda no grupo -1, antes de todos os outros handlers.
-    app.add_handler(TypeHandler(Update, handlers.filtrar_chats), group=-1)
-    app.add_handler(CommandHandler("id", handlers.comando_id, filters=filters.UpdateType.MESSAGE))
-    app.add_handler(CommandHandler("peso", handlers.comando_peso, filters=filters.UpdateType.MESSAGE))
-    app.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND & filters.UpdateType.MESSAGE,
-            handlers.ecoar,
-        )
-    )
-    app.add_error_handler(handlers.tratar_erro)
+    registrar_handlers(app)
 
     logger.info("Iniciando o KALLY...")
     # Sem drop_pending_updates: mensagens enviadas com o bot fora do ar

@@ -162,3 +162,111 @@ async def ultimo_peso(pool: asyncpg.Pool, telegram_id: int) -> tuple[Decimal, da
     if linha is None:
         return None
     return linha["peso_kg"], linha["data"]
+
+
+# --- Refeições (RN-013, RN-016) ---
+
+async def salvar_alimentos(pool: asyncpg.Pool, alimentos: list[dict]) -> dict[str, asyncpg.Record]:
+    """Grava os alimentos novos e devolve a linha da base de cada nome.
+
+    O que já existe nunca é sobrescrito: a base vence, inclusive correções feitas à mão
+    (D-028). Cada dict traz nome, kcal_100g, proteina_100g, carbo_100g, gordura_100g,
+    porcao_g e porcao_nome.
+    """
+    async with pool.acquire() as conexao:
+        async with conexao.transaction():
+            await conexao.executemany(
+                """
+                INSERT INTO alimentos
+                    (nome, kcal_100g, proteina_100g, carbo_100g, gordura_100g, porcao_g, porcao_nome)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                ON CONFLICT (nome) DO NOTHING
+                """,
+                [
+                    (
+                        alimento["nome"],
+                        alimento["kcal_100g"],
+                        alimento["proteina_100g"],
+                        alimento["carbo_100g"],
+                        alimento["gordura_100g"],
+                        alimento["porcao_g"],
+                        alimento["porcao_nome"],
+                    )
+                    for alimento in alimentos
+                ],
+            )
+            linhas = await conexao.fetch(
+                """
+                SELECT id, nome, kcal_100g, proteina_100g, carbo_100g, gordura_100g
+                FROM alimentos
+                WHERE nome = ANY($1::text[])
+                """,
+                [alimento["nome"] for alimento in alimentos],
+            )
+    return {linha["nome"]: linha for linha in linhas}
+
+
+async def registrar_refeicao(
+    pool: asyncpg.Pool,
+    telegram_id: int,
+    chat_id: int,
+    descricao: str,
+    kcal: int,
+    proteina_g: Decimal,
+    carbo_g: Decimal,
+    gordura_g: Decimal,
+    data: date,
+    hora: time,
+    itens: list[dict],
+) -> int:
+    """Grava a refeição e os itens e devolve o total de kcal do dia da pessoa.
+
+    Tudo na mesma transação: se um item falhar, nada fica gravado.
+    message_id fica nulo até a etapa dos botões. Cada dict de `itens` traz alimento_id,
+    texto, gramas, kcal, proteina_g, carbo_g e gordura_g.
+    """
+    async with pool.acquire() as conexao:
+        async with conexao.transaction():
+            refeicao_id = await conexao.fetchval(
+                """
+                INSERT INTO refeicoes
+                    (telegram_id, chat_id, descricao, kcal, proteina_g, carbo_g, gordura_g, data, hora)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                RETURNING id
+                """,
+                telegram_id,
+                chat_id,
+                descricao,
+                kcal,
+                proteina_g,
+                carbo_g,
+                gordura_g,
+                data,
+                hora,
+            )
+            await conexao.executemany(
+                """
+                INSERT INTO refeicao_itens
+                    (refeicao_id, alimento_id, ordem, texto, gramas, kcal, proteina_g, carbo_g, gordura_g)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                """,
+                [
+                    (
+                        refeicao_id,
+                        item["alimento_id"],
+                        ordem,
+                        item["texto"],
+                        item["gramas"],
+                        item["kcal"],
+                        item["proteina_g"],
+                        item["carbo_g"],
+                        item["gordura_g"],
+                    )
+                    for ordem, item in enumerate(itens, start=1)
+                ],
+            )
+            return await conexao.fetchval(
+                "SELECT COALESCE(SUM(kcal), 0) FROM refeicoes WHERE telegram_id = $1 AND data = $2",
+                telegram_id,
+                data,
+            )
