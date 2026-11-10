@@ -2,7 +2,7 @@
 
 Instruções para implementar a etapa 3 do roteiro. Escrito para os agentes `kally-python` (implementa) e `kally-revisor` (revisa), e para o usuário acompanhar.
 
-**Status:** implementada, aguardando revisão e o teste do usuário · **Etapa anterior:** 2 (concluída) · **Fonte principal:** [etapa-3-decisoes.md](etapa-3-decisoes.md), com D1 a D11, P1 a P11, direção técnica e critérios de aceite. Este plano não repete o que está lá.
+**Status:** ✅ concluída, testada e aprovada pelo usuário em 08/11/2026 · **Etapa anterior:** 2 (concluída) · **Fonte principal:** [etapa-3-decisoes.md](etapa-3-decisoes.md), com D1 a D11, P1 a P11, direção técnica e critérios de aceite. Este plano não repete o que está lá.
 
 ---
 

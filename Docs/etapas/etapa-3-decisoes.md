@@ -184,4 +184,4 @@ Medido em `google-genai` 2.34.0 contra um servidor falso, **não** contra o Gemi
 1. ~~O usuário confirma P1 a P11 e o texto de limite.~~ Feito em 04/11/2026.
 2. ~~`kally-python` escreve o plano final em `Docs/etapas/`.~~ Feito: [etapa-3-r-gemini.md](etapa-3-r-gemini.md).
 3. ~~O usuário pede a implementação.~~ Feito em 04/11/2026.
-4. `kally-python` implementa, `kally-revisor` revisa, o usuário testa e faz o commit.
+4. ~~`kally-python` implementa, `kally-revisor` revisa, o usuário testa e faz o commit.~~ Feito; etapa aprovada em 08/11/2026.

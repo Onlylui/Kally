@@ -139,7 +139,7 @@ Recomendado agendar via `cron` no servidor.
 
 - [x] Bot papagaio funcionando no grupo, com `/id`
 - [x] Docker, banco, migrações e `/peso`
-- [ ] `/r` com o Gemini
+- [x] `/r` com o Gemini
 - [ ] Base de alimentos (IA só para alimentos novos)
 - [ ] Botões de corrigir e apagar
 - [ ] `/retro`
