@@ -141,7 +141,7 @@ Registra e consulta o peso. É só armazenamento: não há cálculo nem relaçã
 ### RN-013 — Comando `/r`
 **Status:** decidida
 
-A refeição só é registrada com o comando `/r <descrição>` (D-017, D-021). O bot calcula as calorias pela base de alimentos e só chama o Gemini para o que a base não conhece (RN-016). Depois grava e responde com as calorias e o total do dia.
+A refeição só é registrada com o comando `/r <descrição>` (D-017, D-021). Todo `/r` válido chama o Gemini, que separa os itens e converte as quantidades em gramas; as calorias saem dos valores por 100 g da base de alimentos (RN-016, D-041). Depois o bot grava e responde com as calorias e o total do dia.
 
 ```
 João: /r arroz, feijão, 1 bife e salada
@@ -187,9 +187,9 @@ Toda resposta de registro (`/r`, `/retro`, `/peso`) traz botões (D-019):
 - Corrigir um registro **não altera a base de alimentos** (RN-016). Se a pessoa corrigir só as calorias, vale só para aquele registro. A base só é corrigida direto no banco (D-028).
 
 ### RN-016 — Base de alimentos
-**Status:** decidida (o funcionamento detalhado é proposta)
+**Status:** decidida (D-041 a D-044)
 
-O bot guarda as calorias e os macros **por 100 g** de cada alimento que já viu, e só usa o Gemini para alimentos novos (D-026). A base começa vazia (D-027) e não tem comando para ser consultada ou corrigida; correções são feitas direto no banco (D-028).
+O bot guarda as calorias e os macros **por 100 g** de cada alimento que já viu. Todo `/r` chama o Gemini, que separa os itens e converte as quantidades em gramas; quando o alimento já está na base, os valores por 100 g vêm dela, não do Gemini (D-041). Assim, o mesmo alimento tem sempre as mesmas calorias por 100 g. A base começa vazia (D-027) e não tem comando para ser consultada ou corrigida; correções são feitas direto no banco (D-028).
 
 **O que a base guarda, por alimento:**
 
@@ -198,23 +198,32 @@ O bot guarda as calorias e os macros **por 100 g** de cada alimento que já viu,
 | nome | arroz |
 | kcal por 100 g | 130 |
 | proteína, carbo e gordura por 100 g | 2,5 · 28 · 0,3 |
-| porção padrão | 1 colher de servir = 45 g |
+| porção padrão (só referência, D-044) | 1 colher de servir = 45 g |
 | origem | ia |
 
 **Como um registro é calculado:**
 
-1. O bot separa a descrição em itens, por vírgula, "e", "+" ou quebra de linha: `150 g de arroz, 1 bife e salada` → `150 g de arroz` · `1 bife` · `salada`.
-2. Em cada item, separa a quantidade do alimento:
-   - com peso ou volume (`150 g`, `0,2 kg`, `300 ml`): usa esse valor (ml conta como g);
-   - com número de unidades (`1 bife`, `2 ovos`): número × porção padrão;
-   - sem quantidade (`salada`): 1 porção padrão.
-3. Normaliza o nome do alimento como a pessoa escreveu (minúsculo, sem acento, singular): `2 Ovos` → `ovo`. Procura na base por esse nome. Não há apelidos (D-030): "arroz" e "arroz branco" são alimentos diferentes.
-4. **Todos encontrados:** a conta é feita localmente, sem IA: `kcal = kcal por 100 g × gramas ÷ 100`.
-5. **Algum não encontrado:** só esses itens vão ao Gemini, que devolve os valores por 100 g, a porção padrão e os gramas estimados. O alimento entra na base com o nome que a pessoa escreveu, não com um nome dado pelo Gemini (D-034): quando recebe a descrição, o Gemini devolve o trecho escrito pela pessoa, no singular, e o bot só tira maiúsculas, acentos e espaços nas pontas. Se o nome já existe na base, a base vence: ela nunca é sobrescrita, e o item usa os valores dela. O Gemini considera o alimento já preparado, na forma em que é comido: "arroz" é arroz cozido (D-031). Os alimentos novos entram na base, e a conta segue igual.
-6. **O bot não consegue separar a descrição:** a mensagem inteira vai ao Gemini, que devolve os itens já separados, e os alimentos novos entram na base.
-7. **Trecho que não é comida no meio da descrição:** o Gemini o devolve à parte, os alimentos reconhecidos são registrados e a resposta avisa: `Ignorei: kkkk` (D-039).
+1. A descrição limpa (RN-013) vai inteira ao Gemini, numa chamada.
+2. O Gemini separa a descrição em itens e devolve, para cada um:
+   - **nome:** o que o Gemini devolve seguindo o prompt atual (as palavras da pessoa, no singular, sem quantidade). Quando ele corrige a grafia ou tira o tamanho mesmo assim (`pichanha` → `picanha assada`; `goiabas grandes` → `goiaba`), o resultado é aceito (D-043);
+   - **gramas:** a quantidade convertida em gramas, seja qual for a medida: `150 g`, `0,2 kg`, `300 ml` (ml conta como g), `2 ovos`, `2 colheres de arroz`, `1 concha de feijão`, `2 fatias`, `meia pizza`, `banana grande`. Sem quantidade (`salada`), ele estima uma porção típica. A quantidade escrita pela pessoa sempre vale;
+   - **valores por 100 g** e a **porção padrão**, considerando o alimento já preparado, na forma em que é comido: "arroz" é arroz cozido (D-031).
+3. O bot valida a resposta (abaixo). Um item inválido cancela tudo (RN-017).
+4. O bot normaliza o nome para a base (minúsculo, sem acento, sem espaços nas pontas) e procura por ele. Não há apelidos (D-030): "arroz" e "arroz branco" são alimentos diferentes.
+5. **Alimento já na base:** a base vence. Ela nunca é sobrescrita, e o item usa os valores por 100 g dela com os gramas do Gemini.
+6. **Alimento novo:** entra na base com os valores do Gemini, e a conta segue igual.
+7. **Conta de cada item:** `kcal = kcal por 100 g × gramas ÷ 100`, arredondada para inteiro; macros com 1 casa. O total da refeição é a soma dos itens.
+8. **Trecho que não é comida no meio da descrição:** o Gemini o devolve à parte, os alimentos reconhecidos são registrados e a resposta avisa: `Ignorei: kkkk` (D-039).
 
-**Na resposta**, cada item mostra os gramas usados (`bife 120 g · 250 kcal`), para que a pessoa veja na hora se a porção padrão não bate com o que comeu e corrija.
+**A porção padrão não entra na conta** (D-044). Ela é pedida, validada e gravada só como referência.
+
+**Na resposta**, cada item mostra o nome e os gramas usados (`bife 120 g · 250 kcal`), para que a pessoa veja na hora se a conversão não bate com o que comeu e corrija. Não há indicação de unidades, como "(2 un.)".
+
+**Casos de borda:**
+- O mesmo texto pode dar gramas um pouco diferentes em dias diferentes, porque os gramas sempre vêm do Gemini. As calorias por 100 g do alimento já conhecido não mudam.
+- O Gemini pode dar nomes diferentes para o mesmo alimento em dias diferentes ("picanha" e "picanha assada"), o que cria duplicatas na base. Risco aceito (D-030, D-043).
+- O Gemini pode completar o nome ("pão" → "pão francês"), e isso entra na base. Risco aceito; a resposta mostra o nome, e a correção da base é direto no banco (D-028, D-043).
+- Gemini fora do ar impede qualquer `/r`, mesmo de alimentos já conhecidos (RN-017).
 
 **Validação do que vem do Gemini**, antes de entrar na base:
 - kcal por 100 g entre 0 e 900 (nenhum alimento passa disso; óleo puro tem ~880);
@@ -223,23 +232,46 @@ O bot guarda as calorias e os macros **por 100 g** de cada alimento que já viu,
 - gramas do item e porção padrão maiores que zero e de até 10.000 g, com o limite exato aceito (D-040);
 - nome, trecho e porção preenchidos, sem o caractere NUL.
 
-Se um item não passar, a resposta inteira conta como inválida (RN-017).
+Se um item não passar, a resposta inteira conta como inválida (RN-017). Isso vale também para a porção padrão, mesmo ela não entrando na conta: é uma desvantagem aceita (D-044).
 
 ### RN-017 — Falha do Gemini
-**Status:** decidida
+**Status:** decidida (D-045, D-047, D-048; premissas da [etapa 4](etapas/etapa-4-decisoes.md) confirmadas em 10/11/2026)
 
-Se o Gemini não responder em **15 segundos**, der erro (cota, fora do ar) ou devolver algo inválido (RN-016), o bot **não registra nada** e responde:
+**Decidido:**
+- Se o Gemini der erro, demorar demais ou devolver algo inválido (RN-016), o bot **não registra nada**.
+- Nas **falhas passageiras**, o bot tenta de novo sozinho antes de responder (D-045).
+- Se ainda assim falhar, a mensagem de falha traz o botão **🔄 Tentar de novo**, que repete o pedido sem a pessoa precisar reenviar o texto (D-045).
+- Não há modelo reserva (D-045).
 
-> Não consegui estimar agora. Nada foi registrado, tente de novo em instantes.
+**Detalhes (D-048):**
+- **Falhas passageiras** são: erro do servidor do Gemini (5xx, 503), limite de requisições (429), tempo esgotado e falha de conexão. Resposta fora do schema e item inválido **não** são repetidos automaticamente, porque tendem a dar o mesmo erro (com `temperature=0`); para eles, só o botão.
+- Até **3 tentativas** no total, com esperas de 2 s e 5 s entre elas, cada uma com **15 s** de limite e todas dentro de **40 s** no total. Se sobrarem menos de 5 s, o bot não começa outra tentativa.
+- Enquanto tenta, o bot mostra "digitando…" no grupo.
+- Os outros comandos (`/peso`, o `/r` da outra pessoa) esperam na fila até o `/r` em andamento terminar (D-047).
+- A mensagem de falha:
 
-- Não há nova tentativa automática (D-023).
-- Registros calculados só pela base continuam funcionando com o Gemini fora do ar.
+  > Não consegui estimar agora. Nada foi registrado.
+  > [🔄 Tentar de novo]
+
+- O botão só aparece na falha do Gemini. Não aparece em banco fora do ar, descrição vazia, descrição longa demais ou "nenhum alimento".
+- Ao apertar, a mensagem vira "Tentando de novo…", sem o botão, e o bot faz o mesmo processo do `/r`, inclusive as novas tentativas automáticas.
+- **Deu certo:** a mensagem de falha é editada e vira a resposta normal do registro.
+- **Falhou de novo:** a mensagem volta a ser a de falha, com o botão.
+- **Data da refeição:** vale o horário de envio do `/r` original (RN-007), não o do clique. Se for de outro dia, a resposta mostra `total de 09/11`, como hoje.
+- **Só quem mandou o `/r`** pode apertar. Para outra pessoa, o bot avisa só para ela, sem mensagem nova no grupo: "Só João pode tentar de novo."
+- O pedido pendente fica **em memória**. Se o bot reiniciar, ou se passarem 7 dias do `/r` original, o botão responde "Esse pedido expirou. Mande o /r de novo." e some.
+- Apertar duas vezes seguidas registra uma vez só.
+
+**Casos de borda:**
+- O banco cai depois de o Gemini responder, durante um clique no botão: vale a resposta de banco fora do ar (RN-013), e o pedido pendente não volta, para não arriscar registro em dobro.
+- Pelo botão, o Gemini responde que não há alimento: vale a resposta "Não identifiquei nenhum alimento...", sem botão.
+- A pessoa reenvia o `/r` em vez de apertar o botão: são dois pedidos independentes; o botão antigo continua valendo e, se usado, registra de novo. Aceito: a resposta mostra o registro, e a exclusão vem com os botões (RN-015).
 
 ---
 
 ## Em aberto
 
-Nenhuma questão em aberto: as regras do MVP estão fechadas.
+- **Detalhes da RN-017** (novas tentativas e botão "Tentar de novo"): premissas P1 a P13 da [etapa 4](etapas/etapa-4-decisoes.md#2-premissas-a-confirmar), com a recomendação em cada uma.
 
 ### Resolvidas ou descartadas
 - **Q-001** (como saber se a mensagem é refeição): resolvida por D-017 (registro por comando).
@@ -250,9 +282,9 @@ Nenhuma questão em aberto: as regras do MVP estão fechadas.
 - **Q-012**, **Q-013** (`/dia` e semana): resolvidas por D-020.
 - **Q-005** (várias refeições numa mensagem): resolvida por D-022 (um registro só).
 - **Q-015**, **Q-016** (nome do comando e limites do retroativo): resolvidas por D-021.
-- **Q-004** (falha do Gemini): resolvida por D-023 e RN-017.
+- **Q-004** (falha do Gemini): resolvida por D-023 e RN-017; revista por D-045 (nova tentativa automática e botão).
 - **Q-006** (exclusão de dados): fora do MVP por D-025.
-- **Q-007** (consistência do Gemini): os usuários já testaram e acharam consistente; a base de alimentos (D-026) reforça isso.
+- **Q-007** (consistência do Gemini): os usuários já testaram e acharam consistente; a base de alimentos reforça isso, fixando os valores por 100 g de cada alimento (D-041).
 - **Q-014** (pesagens no CSV): resolvida por D-024.
 - **Q-017** (base inicial): começa vazia, por D-027.
 - **Q-018** (corrigir a base): sem comando no MVP, por D-028.

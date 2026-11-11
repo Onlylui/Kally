@@ -172,7 +172,7 @@ KALLY: João, responda a esta mensagem com a descrição correta,
 João (respondendo): arroz, feijão, 2 bifes e salada
 
 KALLY: ✏️ João: corrigido de 650 para 900 kcal · total hoje: 2.200 kcal
-       arroz 200 · feijão 140 · bife (2 un.) 500 · salada 60
+       arroz 200 · feijão 140 · bife 500 · salada 60
 ```
 
 ### Corrigir só as calorias (valor da embalagem) · RN-015
@@ -372,10 +372,10 @@ data;hora;pessoa;peso_kg
 
 ## 7. Base de alimentos · RN-016
 
-Por trás, o bot só chama o Gemini para alimentos que ainda não conhece. Para quem usa, a conversa é igual; a diferença está no custo e na consistência.
+Por trás, todo `/r` vai ao Gemini, que separa os itens e converte as quantidades em gramas. As calorias por 100 g de um alimento que a base já conhece vêm sempre da base (D-041). Para quem usa, a diferença está na consistência.
 
-### Primeira vez: alimento novo, usa a IA
-A base ainda não conhece "tapioca" nem "queijo coalho". Os dois vão ao Gemini e entram na base.
+### Primeira vez: alimento novo
+A base ainda não conhece "tapioca" nem "queijo coalho". Os valores por 100 g vêm do Gemini, e os dois entram na base.
 ```
 Maria (09:00): /r 1 tapioca com queijo coalho
 
@@ -384,8 +384,8 @@ KALLY: Maria: +310 kcal · total hoje: 310 kcal
        [✏️ Corrigir] [❌ Apagar]
 ```
 
-### Da segunda vez em diante: sem IA
-Os dois já estão na base. A conta é local, sem gastar tokens, e dá exatamente o mesmo valor.
+### Da segunda vez em diante: mesmos valores por 100 g
+Os dois já estão na base. O Gemini só converte as quantidades; as calorias por 100 g são as da base. Os gramas podem variar um pouco entre um dia e outro.
 ```
 Maria (dias depois): /r tapioca com queijo coalho
 
@@ -394,28 +394,38 @@ KALLY: Maria: +310 kcal · total hoje: 310 kcal
        [✏️ Corrigir] [❌ Apagar]
 ```
 
-### Mistura de conhecido e novo
-Arroz e feijão saem da base. Só "moqueca de peixe" vai ao Gemini.
+### Medidas caseiras · RN-016, D-041
+Colher, concha, fatia, "meio" e tamanho são convertidos em gramas pelo Gemini. Não é preciso pesar.
 ```
-João: /r 150 g de arroz, feijão e moqueca de peixe
+João: /r 4 colheres de arroz, 1 concha de feijão e meio bife grande
 
-KALLY: João: +590 kcal · total hoje: 1.120 kcal
-       arroz 150 g · 195 kcal · feijão 100 g · 75 kcal · moqueca de peixe 250 g · 320 kcal
+KALLY: João: +445 kcal · total hoje: 975 kcal
+       arroz 100 g · 130 kcal · feijão 140 g · 105 kcal · bife 100 g · 210 kcal
        [✏️ Corrigir] [❌ Apagar]
 ```
 
-### O peso informado vale mais que a porção padrão
-A base sabe que "1 bife" são 120 g, mas o que a pessoa escreve tem prioridade.
+### Nome corrigido · RN-016, D-043
+O Gemini corrige a grafia e tira quantidade e tamanho do nome.
+```
+João: /r 2 goiabas grandes e 150 g de pichanha
+
+KALLY: João: +560 kcal · total hoje: 1.680 kcal
+       goiaba 340 g · 190 kcal · picanha assada 150 g · 370 kcal
+       [✏️ Corrigir] [❌ Apagar]
+```
+
+### O peso informado vale mais que qualquer estimativa
+O que a pessoa escreve tem prioridade.
 ```
 João: /r 200 g de bife e 2 ovos
 
 KALLY: João: +560 kcal · total hoje: 1.680 kcal
-       bife 200 g · 420 kcal · ovo 100 g (2 un.) · 140 kcal
+       bife 200 g · 420 kcal · ovo 100 g · 140 kcal
        [✏️ Corrigir] [❌ Apagar]
 ```
 
-### Porção padrão não bate: corrigir pela descrição · RN-015
-Os gramas na resposta mostram a porção que o bot supôs. Se não bate, basta corrigir com o peso.
+### Quantidade não bate: corrigir pela descrição · RN-015
+Os gramas na resposta mostram a quantidade que o bot supôs. Se não bate, basta corrigir com o peso.
 ```
 KALLY: João: +250 kcal · total hoje: 1.370 kcal
        bife 120 g · 250 kcal
@@ -428,7 +438,7 @@ KALLY: ✏️ João: corrigido de 250 para 375 kcal · total hoje: 1.495 kcal
 ```
 
 ### Churrasco: descrever pelo que comeu, não pelo nome do evento · RN-016
-"Churrasco" sozinho vira um alimento genérico, com uma porção chutada. Pior: fica salvo na base, e todo `/r churrasco` futuro recebe o mesmo valor, tenha a pessoa comido duas linguiças ou meio boi.
+"Churrasco" sozinho vira um alimento genérico, com uma quantidade chutada. Pior: fica salvo na base, e todo `/r churrasco` futuro recebe as mesmas calorias por 100 g, tenha a pessoa comido duas linguiças ou meio boi.
 ```
 João: /r churrasco
 
@@ -437,12 +447,12 @@ KALLY: João: +750 kcal · total hoje: 1.230 kcal
        [✏️ Corrigir] [❌ Apagar]
 ```
 
-Contando os pedaços, cada carne entra na base com a sua porção padrão, e os gramas na resposta mostram o que foi suposto:
+Contando os pedaços, cada carne entra na base com os seus valores, e os gramas na resposta mostram o que foi suposto:
 ```
 João: /r 3 pedaços de picanha, 2 linguiças toscanas e 1 coxa de frango
 
 KALLY: João: +1.210 kcal · total hoje: 1.690 kcal
-       picanha 180 g (3 pedaços) · 520 kcal · linguiça toscana 160 g (2 un.) · 480 kcal · coxa de frango 100 g (1 un.) · 210 kcal
+       picanha 180 g · 520 kcal · linguiça toscana 160 g · 480 kcal · coxa de frango 100 g · 210 kcal
        [✏️ Corrigir] [❌ Apagar]
 ```
 
@@ -451,16 +461,78 @@ Sem balança, a palma da mão (sem os dedos, na espessura dela) equivale a uns 1
 Maria: /r picanha do tamanho de 2 palmas da mão e 1 linguiça
 
 KALLY: Maria: +820 kcal · total hoje: 1.540 kcal
-       picanha 200 g · 580 kcal · linguiça 80 g (1 un.) · 240 kcal
+       picanha 200 g · 580 kcal · linguiça 80 g · 240 kcal
        [✏️ Corrigir] [❌ Apagar]
 ```
 
 ### O Gemini falha · RN-017
-Nada é registrado.
+Nada é registrado. Este é o texto atual (etapa 3); a etapa 4 o substitui pelos exemplos abaixo.
 ```
 João: /r yakisoba de frango
 
 KALLY: Não consegui estimar agora. Nada foi registrado, tente de novo em instantes.
+```
+
+> **Etapa 4 (D-045, D-048):** os exemplos a seguir substituem o texto acima quando a etapa 4 for entregue.
+
+### Falha passageira resolvida sozinha · RN-017, D-045
+O Gemini dá erro na primeira tentativa e responde na segunda. Para quem usa, só demora um pouco mais, com o "digitando…" aparecendo.
+```
+João: /r yakisoba de frango
+
+(KALLY está digitando…)
+
+KALLY: João: +520 kcal · total hoje: 1.320 kcal
+       yakisoba de frango 400 g · 520 kcal
+```
+
+### Falha depois das tentativas, com botão · RN-017, D-045
+```
+João: /r yakisoba de frango
+
+KALLY: Não consegui estimar agora. Nada foi registrado.
+       [🔄 Tentar de novo]
+
+(João aperta 🔄 Tentar de novo; a mensagem vira:)
+
+KALLY: Tentando de novo…
+
+(deu certo; a mesma mensagem vira:)
+
+KALLY: João: +520 kcal · total hoje: 1.320 kcal
+       yakisoba de frango 400 g · 520 kcal
+```
+
+Se falhar de novo, a mensagem volta a ser a de falha, com o botão.
+
+### Botão apertado no dia seguinte · RN-017, RN-007
+A refeição conta no dia em que o `/r` foi enviado, não no dia do clique.
+```
+João (31/10, 23:50): /r yakisoba de frango
+
+KALLY: Não consegui estimar agora. Nada foi registrado.
+       [🔄 Tentar de novo]
+
+(João aperta o botão em 01/11, às 08:00)
+
+KALLY: João: +520 kcal · total de 31/10: 2.140 kcal
+       yakisoba de frango 400 g · 520 kcal
+```
+
+### Outra pessoa aperta o botão · RN-017
+O aviso aparece só para quem apertou, sem mensagem nova no grupo.
+```
+(Maria aperta 🔄 Tentar de novo na falha do João)
+
+(aviso para Maria) Só João pode tentar de novo.
+```
+
+### Pedido expirado · RN-017
+Depois de o bot reiniciar, ou com mais de 7 dias do `/r`. O aviso aparece só para quem apertou, e o botão some.
+```
+(João aperta 🔄 Tentar de novo)
+
+(aviso para João) Esse pedido expirou. Mande o /r de novo.
 ```
 
 ### Erro inesperado · RN-013, D-040
@@ -471,13 +543,6 @@ João: /r yakisoba de frango
 KALLY: Algo deu errado. Tente de novo em instantes.
 ```
 
-### Gemini fora do ar, mas tudo está na base · RN-017
-Funciona normalmente, porque não precisa da IA.
-```
-João: /r 150 g de arroz e feijão
-
-KALLY: João: +270 kcal · total hoje: 1.765 kcal
-       arroz 150 g · 195 kcal · feijão 100 g · 75 kcal
-       [✏️ Corrigir] [❌ Apagar]
-```
+### Gemini fora do ar, mesmo com tudo na base · RN-017, D-041
+Todo `/r` precisa do Gemini para separar e converter as quantidades, então não há registro sem ele, mesmo de alimentos já conhecidos. Vale a resposta de falha acima.
 

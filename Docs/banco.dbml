@@ -21,19 +21,19 @@ Table usuarios {
 
 Table alimentos {
   id bigserial [pk]
-  nome text [not null, unique, note: 'Texto que a pessoa escreveu, normalizado: minúsculo, sem acento, singular, sem quantidade. Ex.: 150 g de arroz → arroz (D-034)']
+  nome text [not null, unique, note: 'Nome curto e corrigido devolvido pelo Gemini, normalizado: minúsculo, sem acento, singular, sem quantidade nem tamanho. Ex.: goiabas grandes → goiaba (D-043)']
   kcal_100g numeric [not null, note: 'CHECK entre 0 e 900 (RN-016)']
   proteina_100g numeric [not null, note: 'CHECK >= 0']
   carbo_100g numeric [not null, note: 'CHECK >= 0']
   gordura_100g numeric [not null, note: 'CHECK >= 0']
-  porcao_g numeric [not null, note: 'Gramas de 1 porção padrão. CHECK > 0']
+  porcao_g numeric [not null, note: 'Gramas de 1 porção padrão, só referência: não entra na conta (D-044). CHECK > 0']
   porcao_nome text [not null, note: 'Ex.: 1 bife, 1 unidade, 1 colher de servir']
   origem text [not null, default: 'ia', note: 'ia | manual (corrigido direto no banco, D-028). CHECK IN (ia, manual)']
   criado_em timestamptz [not null, default: `now()`]
 
   Note: '''
-  Base própria de alimentos, com valores por 100 g (RN-016, D-026).
-  Busca só pelo nome, sem apelidos (D-030). O nome vem do texto da pessoa; o Gemini fornece os valores (D-034).
+  Base própria de alimentos, com valores por 100 g (RN-016, D-041).
+  Busca só pelo nome, sem apelidos (D-030). O nome e os valores vêm do Gemini (D-043); o que já existe nunca é sobrescrito.
   Começa vazia e é preenchida pelo Gemini (D-027).
   '''
 }
@@ -72,7 +72,7 @@ Table refeicao_itens {
   alimento_id bigint [not null]
   ordem smallint [not null, note: 'Posição do item na descrição, para mostrar na mesma ordem']
   texto text [not null, note: 'Trecho da descrição que gerou o item. Ex.: 1 bife']
-  gramas numeric [not null, note: 'Informado pela pessoa ou porção padrão × unidades (RN-016). CHECK > 0']
+  gramas numeric [not null, note: 'Quantidade convertida em gramas pelo Gemini (RN-016). CHECK > 0']
   kcal numeric [not null, note: 'Copiado no momento do registro: corrigir a base não muda refeições antigas (D-028)']
   proteina_g numeric [not null]
   carbo_g numeric [not null]

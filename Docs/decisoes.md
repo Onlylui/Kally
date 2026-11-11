@@ -35,24 +35,32 @@ Diário de bordo do projeto: cada decisão importante, quando foi tomada, por qu
 | D-020 | 2026-11-01 | `/dia` só de hoje; semana de segunda a domingo; CSV com os dois, uma linha por refeição | Produto | vigente |
 | D-021 | 2026-11-01 | Comando `/r`; retroativo até 7 dias e só para refeições; `/exportar` aceita período | Produto | vigente |
 | D-022 | 2026-11-01 | Sem tipo de refeição: uma mensagem é um registro, só as calorias importam | Negócio | vigente |
-| D-023 | 2026-11-01 | Falha do Gemini: só mensagem de erro, sem nova tentativa e sem registro | Negócio | vigente |
+| D-023 | 2026-11-01 | Falha do Gemini: só mensagem de erro, sem nova tentativa e sem registro | Negócio | substituída por D-045 |
 | D-024 | 2026-11-01 | `/exportar` manda um segundo CSV só com as pesagens | Produto | vigente |
 | D-025 | 2026-11-01 | Exclusão de todos os dados de uma pessoa fica fora do MVP | Produto | vigente |
-| D-026 | 2026-11-01 | Base própria de alimentos (kcal/100 g); a IA só é chamada para o que não está na base | Técnica | vigente |
-| D-027 | 2026-11-01 | A base de alimentos começa vazia e aprende com o Gemini | Técnica | vigente |
+| D-026 | 2026-11-01 | Base própria de alimentos (kcal/100 g); a IA só é chamada para o que não está na base | Técnica | substituída por D-041 |
+| D-027 | 2026-11-01 | A base de alimentos começa vazia e aprende com o Gemini | Técnica | vigente (consequência revista em D-041) |
 | D-028 | 2026-11-01 | Sem comando para ver ou corrigir a base no MVP | Produto | vigente |
 | D-029 | 2026-11-01 | Itens da refeição numa tabela própria (`refeicao_itens`), não em JSONB | Técnica | vigente |
-| D-030 | 2026-11-01 | Sem apelidos de alimentos no MVP: a busca é só pelo nome | Técnica | vigente |
+| D-030 | 2026-11-01 | Sem apelidos de alimentos no MVP: a busca é só pelo nome | Técnica | vigente (consequência revista em D-041) |
 | D-031 | 2026-11-01 | O Gemini considera os alimentos já preparados (cozido, grelhado, assado) | Técnica | vigente |
 | D-032 | 2026-11-01 | Limitações aceitas no MVP: base compartilhada, total da refeição prevalece, sem histórico de correção | Técnica | vigente |
 | D-033 | 2026-11-01 | Apagar remove o registro de verdade (`DELETE`), depois de confirmação | Técnica | vigente |
-| D-034 | 2026-11-01 | O nome do alimento na base é o texto que a pessoa escreveu, não o nome dado pelo Gemini | Técnica | vigente |
+| D-034 | 2026-11-01 | O nome do alimento na base é o texto que a pessoa escreveu, não o nome dado pelo Gemini | Técnica | substituída por D-043 |
 | D-035 | 2026-11-02 | Tudo roda em Docker, também no desenvolvimento; sem execução local | Técnica | vigente |
 | D-036 | 2026-11-04 | Mensagem sem comando recebe silêncio, sem aviso | Produto | vigente |
 | D-037 | 2026-11-04 | Descrição do `/r` limitada a 500 caracteres | Negócio | vigente |
 | D-038 | 2026-11-04 | Coerência de macros com margem de 20% (mínimo de 10 kcal); bebida alcoólica dispensa | Técnica | vigente |
 | D-039 | 2026-11-04 | Lixo misturado aos alimentos é ignorado com aviso, sem cancelar o registro | Negócio | vigente |
 | D-040 | 2026-11-05 | Tetos de 10.000 g e de 100 g de macro por 100 g na resposta do Gemini; resposta para erro inesperado | Negócio | vigente |
+| D-041 | 2026-11-10 | Sem parser local: o Gemini sempre separa os itens e converte as medidas em gramas; a base fornece os valores por 100 g | Técnica | vigente |
+| D-042 | 2026-11-10 | Sem cache de resposta por linha e sem os nomes da base no prompt | Técnica | vigente |
+| D-043 | 2026-11-10 | O nome do alimento é o que o Gemini devolve com o prompt atual; correções de grafia são aceitas | Técnica | vigente |
+| D-044 | 2026-11-10 | A porção padrão continua sendo pedida, validada e gravada, só como referência | Técnica | vigente |
+| D-045 | 2026-11-10 | Falha passageira do Gemini: nova tentativa automática e botão "Tentar de novo" | Negócio | vigente |
+| D-046 | 2026-11-10 | Novo roteiro: etapa 4 vira resiliência do Gemini; `/dia` e `/semana` se separam | Produto | vigente |
+| D-047 | 2026-11-10 | Os updates continuam em fila (um por vez); chamadas paralelas ficam para o futuro | Técnica | vigente |
+| D-048 | 2026-11-10 | Detalhes da resiliência do Gemini: 3 tentativas, 15 s cada, 40 s no total, botão só do dono, 7 dias | Negócio | vigente |
 
 ---
 
@@ -170,6 +178,8 @@ Diário de bordo do projeto: cada decisão importante, quando foi tomada, por qu
 - **Consequência:** o Gemini não precisa identificar refeições, só os alimentos e as quantidades. O horário do registro continua no CSV para quem quiser analisar.
 
 ### D-023 — Falha do Gemini
+> **Substituída por D-045.** Nos testes reais, metade das chamadas falhou por instabilidade passageira do Gemini, e reenviar a mensagem à mão virou rotina.
+
 - **Decisão:** se o Gemini falhar, demorar demais ou devolver uma resposta inválida, o bot responde com uma mensagem de erro e não registra nada (RN-017). Não há nova tentativa automática.
 - **Alternativas descartadas:** tentar de novo sozinho depois de alguns segundos.
 - **Motivo:** simples, e a pessoa sabe na hora que precisa mandar de novo.
@@ -182,6 +192,8 @@ Diário de bordo do projeto: cada decisão importante, quando foi tomada, por qu
 - **Revisar se:** o bot passar a ser usado por pessoas de fora do grupo original.
 
 ### D-026 — Base própria de alimentos
+> **Substituída por D-041.** A base continua existindo e fornecendo os valores por 100 g, mas o parser local e a conta sem IA saíram: todo `/r` chama o Gemini.
+
 - **Contexto:** pela experiência dos usuários, o Gemini é consistente nas estimativas (Q-007). O problema é o consumo de tokens a cada registro.
 - **Decisão:** o bot mantém uma base própria com as calorias e os macros **por 100 g** de cada alimento. Quando todos os alimentos de um registro estão na base, a conta é feita localmente, sem IA. O Gemini só é chamado para alimentos que a base ainda não conhece, e o que ele responde é guardado na base (RN-016).
 - **Motivo:** as pessoas comem quase sempre as mesmas coisas. Com o tempo, a maioria dos registros passa a não gastar nenhum token.
@@ -196,11 +208,12 @@ Diário de bordo do projeto: cada decisão importante, quando foi tomada, por qu
 - **Alternativas descartadas:** carregar a tabela TACO. Seria mais precisa desde o início, mas os nomes técnicos exigiriam um trabalho de apelidos.
 - **Consequência:** nas primeiras semanas, quase todo registro chama o Gemini; o consumo de tokens cai conforme a base cresce.
 - **Revisar se:** a base demorar a cobrir o que os usuários comem, ou se a precisão dos valores do Gemini incomodar.
+- **Nota (10/11/2026, D-041):** a decisão continua valendo, mas a consequência sobre os tokens não: todo `/r` chama o Gemini, com ou sem o alimento na base. O que a base acumula agora é consistência dos valores por 100 g, não economia.
 
 ### D-028 — Sem comando para a base
 - **Decisão:** o MVP não tem comando para ver ou corrigir os valores e as porções da base (Q-018). Se um valor estiver errado, a correção é feita direto no banco.
 - **Alternativas descartadas:** `/alimento <nome>` e `/alimento <nome> <kcal>`.
-- **Mitigação:** a validação do que vem do Gemini (RN-016) barra os erros grosseiros, e os gramas na resposta mostram na hora quando uma porção padrão não bate.
+- **Mitigação:** a validação do que vem do Gemini (RN-016) barra os erros grosseiros, e os gramas na resposta mostram na hora quando uma porção padrão não bate. (Desde D-044 a porção padrão não entra mais na conta; os gramas na resposta mostram a conversão feita pelo Gemini.)
 - **Revisar se:** corrigir no banco ficar frequente.
 
 ### D-029 — Tabela de itens da refeição
@@ -219,6 +232,7 @@ Diário de bordo do projeto: cada decisão importante, quando foi tomada, por qu
 - **Motivo:** os usuários não veem necessidade por ora.
 - **Consequência:** formas diferentes de escrever o mesmo alimento viram alimentos diferentes na base, cada uma com uma chamada ao Gemini na primeira vez.
 - **Revisar se:** a base acumular duplicatas ou o consumo de tokens não cair como esperado.
+- **Nota (10/11/2026, D-041 e D-043):** a busca continua só pelo nome. Como todo `/r` chama o Gemini, duplicatas não custam chamadas a mais; e como o nome passou a ser o nome curto e corrigido do Gemini, parte das variações de escrita já chega igual. O critério de revisão passa a ser só o acúmulo de duplicatas.
 
 ### D-031 — Alimentos considerados preparados
 - **Decisão:** o prompt do Gemini instrui a considerar os alimentos na forma em que são comidos: "arroz" é arroz cozido, "frango" é frango preparado, e assim por diante. Valores de alimento cru só quando a pessoa escrever "cru".
@@ -240,6 +254,8 @@ Diário de bordo do projeto: cada decisão importante, quando foi tomada, por qu
 - **Consequência:** um registro apagado não tem volta; a proteção é a confirmação.
 
 ### D-034 — Nome do alimento vem do texto da pessoa
+> **Substituída por D-043.** Na prática, o Gemini devolve um nome curto e corrigido (`pichanha` → `picanha assada`), e os usuários preferiram manter isso.
+
 - **Contexto:** sem apelidos (D-030), se o nome viesse do Gemini, o mesmo alimento poderia entrar duas vezes na base ("arroz cozido" e "arroz branco cozido").
 - **Decisão:** o nome do alimento na base é o trecho que a pessoa escreveu, normalizado (minúsculo, sem acento, singular, sem quantidade): `150 g de arroz` → `arroz`. O Gemini só fornece os valores por 100 g e a porção padrão.
 - **Motivo:** quem escreve sempre do mesmo jeito sempre encontra o mesmo alimento, sem duplicatas e sem nova chamada à IA.
@@ -285,3 +301,80 @@ Diário de bordo do projeto: cada decisão importante, quando foi tomada, por qu
   - Erro inesperado fora de banco no `/r` e no `/peso` responde "Algo deu errado. Tente de novo em instantes." e vai para o log. O texto de banco fora do ar continua só para erro de banco.
 - **Motivo:** 100 g de alimento não têm mais de 100 g de um macro, e 10 kg por item já cobre qualquer refeição real. A pessoa não deve ficar sem resposta quando o bot falha.
 - **Revisar se:** o aviso de erro inesperado levar a registros repetidos, porque ele também aparece quando só o envio da confirmação falhou.
+
+### D-041 — Sem parser local: o Gemini separa e converte, a base fornece os valores
+- **Contexto:** a etapa 4 do roteiro original ia criar `parser.py` e `alimentos.py` para separar a descrição em código e só chamar o Gemini para alimentos novos (D-026). Depois da etapa 3, três fatos mudaram a conta: (1) o grupo usa muitas medidas caseiras no `/r` (colher, concha, fatia, "meio", "pequeno", "grande") e vinha convertendo para gramas antes de mandar; um parser local não entende essas medidas sem uma tabela própria, e erraria em silêncio; (2) a cota do Gemini nunca foi problema, o uso nem saiu do nível gratuito; (3) a consistência por 100 g, principal ganho da base, já existe desde a etapa 3: alimento conhecido usa os valores da base, nunca os novos do Gemini (P2 da etapa 3).
+- **Decisão:** o modelo da etapa 3 passa a ser o definitivo.
+  - Todo `/r` válido chama o Gemini uma vez, com a descrição inteira.
+  - O Gemini separa os itens e converte **qualquer** medida em gramas: peso, volume, unidades e medidas caseiras (colher, concha, fatia, fração, tamanho). Sem quantidade, ele estima uma porção típica.
+  - A base fornece os valores por 100 g quando o alimento já existe pelo nome, e aprende os alimentos novos (D-027).
+  - `parser.py` fica só para as datas do `/retro`. `alimentos.py` deixa de existir. O "(2 un.)" na resposta cai.
+- **Alternativas descartadas:**
+  - Parser local completo com consulta prévia na base (etapa 4 original, D-026): não entende medidas caseiras, e o erro seria silencioso (gramas errados com cara de certos).
+  - Parser local só para gramas e ml, com o Gemini para o resto (híbrido): duas formas de interpretar a mesma descrição, mais código e mais testes, para economizar uma cota que não é gasta.
+  - Tabela de medidas caseiras em código ("1 concha = 140 g"): vira uma regra por alimento, o que a etapa 3 evitou (D11), e só cobriria o que alguém cadastrasse.
+- **Consequências:**
+  - O Gemini fora do ar impede qualquer `/r`, mesmo de alimentos já conhecidos. Por isso a resiliência virou a nova etapa 4 (D-045, D-046).
+  - Os gramas de um mesmo texto podem variar entre chamadas, porque vêm sempre do Gemini; os valores por 100 g, não.
+  - Toda a etapa 4 antiga sai do roteiro.
+- **Revisar se:** o uso sair do nível gratuito ou a cota passar a faltar; ou se os gramas do Gemini para medidas caseiras se mostrarem inconsistentes.
+
+### D-042 — Sem cache por linha e sem os nomes da base no prompt
+- **Contexto:** junto com D-041, foram avaliadas duas formas de reduzir chamadas ou duplicatas.
+- **Decisão:** nenhuma das duas entra.
+  - **Cache por linha:** guardar a resposta do Gemini para cada linha de descrição já vista e reaproveitar sem chamar a IA. Descartado: economiza uma cota que não falta, cria uma tabela nova e uma regra de invalidação, e congelaria gramas errados.
+  - **Nomes da base no prompt:** mandar a lista de alimentos já cadastrados para o Gemini escolher entre eles. Descartado: o prompt cresce com a base (tokens em toda chamada), e o Gemini pode encaixar um alimento novo num nome existente parecido, o que é pior que uma duplicata.
+- **Revisar se:** as duplicatas na base atrapalharem as análises por alimento.
+
+### D-043 — Nome do alimento: o que o Gemini devolve, com o prompt atual
+- **Contexto:** D-034 mandava usar o trecho escrito pela pessoa. Na prática, o Gemini devolve um nome curto e corrigido (`pichanha` → `picanha assada`, `goiabas grandes` → `goiaba`), e os usuários gostaram do resultado.
+- **Decisão:** o nome do alimento é o que o Gemini devolve, e **o prompt atual não muda** (confirmado pelo usuário em 10/11/2026). O prompt pede as palavras da pessoa, no singular, sem quantidade; quando o Gemini corrige a grafia ou tira o tamanho mesmo assim, o resultado é aceito, sem conferência em código. O código só normaliza para a base: minúsculo, sem acento, sem espaços nas pontas. A resposta mostra o nome como veio do Gemini (P10 da etapa 3).
+- **Alternativas descartadas:** manter D-034 (trecho literal da pessoa, que preserva erros de digitação e gera duplicatas como `pichanha`); conferir em código se o nome devolvido está contido no texto da pessoa (D10 da etapa 3).
+- **Consequências:**
+  - O risco D10 da etapa 3 vira **risco aceito permanente**: o Gemini pode completar o nome ("pão" → "pão francês"), e isso entra na base. A resposta mostra nome e gramas; a correção da base é direto no banco (D-028).
+  - O mesmo texto pode gerar nomes diferentes em dias diferentes ("picanha" e "picanha assada"), o que cria duplicatas. Aceito, como em D-030.
+  - O prompt continua dizendo "não troque, não complete e não melhore o nome". Isso reduz as correções, mas não as impede; as que acontecerem são aceitas. Também não muda a regra dos gramas: as medidas caseiras já são convertidas com o prompt atual (ex.: `1/4 de unidade Mamão grande` → 150 g), como D-041 espera.
+- **Revisar se:** o Gemini passar a trocar alimentos por outros diferentes (não só corrigir a grafia).
+
+### D-044 — Porção padrão só como referência
+- **Contexto:** a porção padrão (`porcao_g`, `porcao_nome`) existia para o parser converter unidades em gramas (D-026). Sem parser (D-041), ela não entra mais em nenhuma conta.
+- **Decisão:** o Gemini continua devolvendo a porção padrão, ela continua sendo validada (maior que zero, até 10.000 g, nome preenchido) e gravada em `alimentos`, como referência para consultas e para uma eventual volta do cálculo local. Ela não entra no cálculo das calorias.
+- **Alternativas descartadas:** tirar a porção do schema e da validação (exigiria migração para tornar as colunas opcionais e perderia o dado); manter no schema mas sem validar (gravaria lixo).
+- **Desvantagem aceita:** uma porção padrão inválida derruba a resposta inteira (RN-016, RN-017), mesmo sem ser usada na conta. É raro, e a resiliência (D-045) dá a chance de tentar de novo.
+- **Revisar se:** porção inválida aparecer nos logs como causa de falha.
+
+### D-045 — Resiliência do Gemini: nova tentativa automática e botão
+- **Contexto:** em 10/11/2026, os logs mostraram cerca de 6 falhas em 12 chamadas: 5 `ServerError` (5xx, 503) e 1 `TimeoutError`. Uma nova tentativa segundos depois funcionou em todos os casos. Hoje a pessoa precisa copiar e reenviar a mensagem. Com D-041, todo `/r` depende do Gemini, então a instabilidade dele vira instabilidade do bot inteiro.
+- **Decisão:** substitui D-023.
+  - Nas falhas passageiras do Gemini, o bot tenta de novo sozinho, algumas vezes, dentro de um tempo máximo, antes de responder.
+  - Se ainda assim falhar, nada é registrado, e a mensagem de falha traz o botão **🔄 Tentar de novo**, que repete o pedido sem a pessoa reenviar o texto.
+  - Os detalhes (quais erros, quantas tentativas, esperas, tempo máximo, comportamento do botão) são as premissas da etapa 4, em [`etapas/etapa-4-decisoes.md`](etapas/etapa-4-decisoes.md), e entram na RN-017 como proposta até serem confirmados.
+- **Alternativas descartadas:**
+  - Manter D-023 (só mensagem de erro): metade dos `/r` exigiria reenvio manual.
+  - Só o botão, sem nova tentativa automática: a maioria das falhas some em segundos, então a pessoa apertaria o botão quase sempre.
+  - Só a nova tentativa automática, sem botão: quando o Gemini fica fora por mais tempo, a pessoa volta a ter que copiar e reenviar.
+  - **Modelo reserva** (trocar para outro modelo do Gemini quando o principal falha): não entra agora. Exige uma segunda variável no `.env` e validar o schema em dois modelos.
+- **Consequências:**
+  - Um `/r` pode demorar mais para responder enquanto o bot tenta de novo; precisa de um tempo máximo. Enquanto isso, os outros comandos esperam na fila (D-047).
+  - Cada nova tentativa pode gastar cota. Com até 3 chamadas por `/r` e o uso no nível gratuito, é aceitável.
+  - O botão exige guardar o pedido pendente em memória; reiniciar o bot perde os pendentes.
+- **Revisar se:** as falhas continuarem frequentes mesmo com as novas tentativas (aí entra o modelo reserva), ou se a cota passar a faltar.
+
+### D-046 — Novo roteiro
+- **Contexto:** com D-041, a etapa 4 antiga (base de alimentos com parser) saiu. A resiliência do Gemini (D-045) passou a ser a prioridade, porque afeta todo `/r`.
+- **Decisão:** o roteiro passa a ser: 1 a 3 concluídas · **4. Resiliência do Gemini** · **5. `/dia`** · **6. Botões de corrigir e apagar** · **7. `/retro`** · **8. `/semana`** · **9. `/exportar`** · **10. Deploy**.
+- **Motivo:** a ordem foi definida pelo usuário em 10/11/2026. `/dia` e `/semana` deixam de ser uma etapa só, para cada entrega ficar menor e testável no grupo.
+- **Consequência:** as referências a números de etapa em documentos antigos (por exemplo, "etapa 5" para botões e "etapa 8" para `/exportar` nos planos das etapas 2 e 3 e em comentários do código) seguem a numeração antiga.
+
+### D-047 — Updates em fila; paralelismo fica para o futuro
+- **Contexto:** com as novas tentativas (D-045), um `/r` pode levar até 40 s quando o Gemini está instável. Como o bot processa um update por vez, o `/peso` e o `/r` da outra pessoa esperam esse tempo. A alternativa analisada era rodar o `/r` e o botão em paralelo (`block=False`), com uma trava por pessoa no banco (`pg_advisory_xact_lock`) para o total do dia não sair errado.
+- **Decisão:** manter a fila nesta etapa (confirmado pelo usuário em 10/11/2026). Sem `block=False`, sem `concurrent_updates` e sem trava no banco.
+- **Motivo:** a única demora vem do Gemini fora do ar, e nesse caso o `/r` da outra pessoa também ficaria esperando o Gemini; o ganho do paralelismo é pequeno perto da complexidade.
+- **Consequência:** durante as novas tentativas, os outros comandos só respondem quando o `/r` em andamento termina (até ~40 s).
+- **Para o futuro:** chamadas paralelas são desejadas. O código da etapa 4 não deve dificultar: o fluxo do `/r` fica numa função só, o pedido pendente é retirado da memória antes de qualquer `await`, e a gravação continua numa transação só. Quando o paralelismo entrar, vem junto a trava por pessoa no `registrar_refeicao`.
+- **Revisar se:** o grupo crescer ou a espera atrapalhar o uso.
+
+### D-048 — Detalhes da resiliência do Gemini
+- **Contexto:** premissas P1 a P13 de [`etapas/etapa-4-decisoes.md`](etapas/etapa-4-decisoes.md), respondidas pelo usuário em 10/11/2026.
+- **Decisão:** vale a RN-017 como está escrita: só falhas passageiras se repetem (5xx, 429, tempo esgotado, conexão); até 3 tentativas, esperas de 2 s e 5 s, 15 s por tentativa e 40 s no total; "digitando…" antes de cada tentativa; botão "🔄 Tentar de novo" só na falha do Gemini e só para quem mandou o `/r`; pedido em memória por 7 dias; vale o horário do `/r` original; clique bem-sucedido edita a mensagem de falha. O prompt não muda (D-043). As três pendências herdadas da etapa 2 entram na etapa 4.
+- **Motivo dos 15 s / 40 s:** a resposta bem-sucedida mais lenta nos logs levou 9,5 s (9 itens); 12 s deixaria pouca margem.

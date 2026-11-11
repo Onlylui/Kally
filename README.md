@@ -1,8 +1,8 @@
 # KALLY
 
-**KALLY** é um bot de Telegram para contar calorias em grupo. Os participantes registram o que comeram, o bot calcula calorias e macros com uma base própria de alimentos (usando o Gemini só para alimentos novos), guarda tudo num banco PostgreSQL e mostra o total do dia e da semana de cada um. O histórico pode ser exportado em CSV para análise.
+**KALLY** é um bot de Telegram para contar calorias em grupo. Os participantes registram o que comeram, o Gemini interpreta a descrição e converte as quantidades em gramas, o bot calcula calorias e macros com uma base própria de alimentos (valores por 100 g, sempre os mesmos para o mesmo alimento), guarda tudo num banco PostgreSQL e mostra o total do dia e da semana de cada um. O histórico pode ser exportado em CSV para análise.
 
-> 🚧 **Status:** em desenvolvimento. Funcionam o `/id`, o `/peso` e o `/r`, ainda sem a base de alimentos (todo `/r` chama o Gemini) e sem os botões. Mensagens sem comando não recebem resposta.
+> 🚧 **Status:** em desenvolvimento. Funcionam o `/id`, o `/peso` e o `/r`, ainda sem os botões e sem nova tentativa quando o Gemini falha. Mensagens sem comando não recebem resposta.
 
 ```
 João: /r arroz, feijão, 1 bife e salada
@@ -140,9 +140,10 @@ Recomendado agendar via `cron` no servidor.
 - [x] Bot papagaio funcionando no grupo, com `/id`
 - [x] Docker, banco, migrações e `/peso`
 - [x] `/r` com o Gemini
-- [ ] Base de alimentos (IA só para alimentos novos)
+- [ ] Resiliência do Gemini (nova tentativa automática e botão "Tentar de novo")
+- [ ] `/dia`
 - [ ] Botões de corrigir e apagar
 - [ ] `/retro`
-- [ ] `/dia` e `/semana`
+- [ ] `/semana`
 - [ ] `/exportar`
 - [ ] Deploy no servidor

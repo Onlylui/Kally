@@ -13,7 +13,7 @@ Bot de Telegram, num grupo exclusivo, para registrar refeições, estimar calori
 
 ## 1. Objetivo
 
-Os participantes registram o que comem com `/r`. O bot calcula as calorias e os macros com uma base própria de alimentos, usa o Gemini só para alimentos que ainda não conhece, grava no Postgres e responde com o total do dia. O histórico pode ser exportado em CSV para análises fora do bot (D-012).
+Os participantes registram o que comem com `/r`. O Gemini separa os itens e converte as quantidades em gramas; as calorias e os macros saem dos valores por 100 g de uma base própria de alimentos, que aprende cada alimento novo (D-041). O bot grava no Postgres e responde com o total do dia. O histórico pode ser exportado em CSV para análises fora do bot (D-012).
 
 ```
 João: /r arroz, feijão, 1 bife e salada
@@ -41,7 +41,7 @@ KALLY: João: +650 kcal · total hoje: 1.420 kcal
 ## 3. Como funciona
 
 ```
-Grupo no Telegram ──▶ API do Telegram ◀── KALLY (Python) ──▶ Gemini (só alimentos novos)
+Grupo no Telegram ──▶ API do Telegram ◀── KALLY (Python) ──▶ Gemini (todo /r)
                                               │
                                               ▼
                                          PostgreSQL
@@ -50,13 +50,13 @@ Grupo no Telegram ──▶ API do Telegram ◀── KALLY (Python) ──▶ G
 Fluxo de um `/r` (RN-013, RN-016):
 
 1. Pega o texto, o `user_id`, o nome e o horário de envio da mensagem.
-2. Separa a descrição em itens e quantidades (`parser.py`).
-3. Procura cada alimento na tabela `alimentos`.
-4. Os que não estão na base vão ao Gemini, com saída estruturada (`response_schema`), timeout de 15 s e validação (kcal por 100 g entre 0 e 900, macros coerentes). Os novos entram na base.
-5. Calcula as calorias e os macros de cada item e grava, numa transação, a refeição e os seus itens. Depois soma o total do dia.
-6. Responde no grupo com os botões de corrigir e apagar.
+2. Limpa a descrição e manda inteira ao Gemini, com saída estruturada (`response_schema`). Ele separa os itens, converte as quantidades em gramas (inclusive medidas caseiras) e devolve os valores por 100 g (D-041).
+3. Valida a resposta (kcal por 100 g entre 0 e 900, macros coerentes, tetos de D-040).
+4. Grava os alimentos novos na base; os que já existem não são sobrescritos e usam os valores por 100 g da base.
+5. Calcula as calorias e os macros de cada item (valores da base × gramas do Gemini) e grava, numa transação, a refeição e os seus itens. Depois soma o total do dia.
+6. Responde no grupo com os botões de corrigir e apagar (etapa 6).
 
-Se o Gemini falhar, nada é registrado (RN-017).
+Se o Gemini falhar, nada é registrado. Nas falhas passageiras o bot tenta de novo sozinho, e a mensagem de falha traz o botão "Tentar de novo" (RN-017, D-045).
 
 ---
 
@@ -88,10 +88,10 @@ O diagrama está em [`banco.dbml`](banco.dbml); para visualizar, cole o arquivo 
 | Coluna | Tipo | Observação |
 |---|---|---|
 | id | BIGSERIAL (PK) | |
-| nome | TEXT (UNIQUE) | o texto que a pessoa escreveu, normalizado: minúsculo, sem acento, singular, sem quantidade (D-034) |
+| nome | TEXT (UNIQUE) | nome devolvido pelo Gemini (palavras da pessoa, no singular, sem quantidade; correções de grafia do Gemini são aceitas), normalizado: minúsculo, sem acento (D-043) |
 | kcal_100g | NUMERIC | entre 0 e 900 |
 | proteina_100g / carbo_100g / gordura_100g | NUMERIC | `>= 0` |
-| porcao_g | NUMERIC | gramas de 1 porção padrão, `> 0` |
+| porcao_g | NUMERIC | gramas de 1 porção padrão, `> 0`; só referência, não entra na conta (D-044) |
 | porcao_nome | TEXT | ex.: "1 bife", "1 unidade", "1 colher de servir" |
 | origem | TEXT | `ia` (padrão) ou `manual`, quando corrigido no banco; `CHECK` só aceita esses dois |
 | criado_em | TIMESTAMPTZ | |
@@ -138,7 +138,7 @@ Um alimento dentro de uma refeição.
 | alimento_id | BIGINT (FK → alimentos, `ON DELETE RESTRICT`) | |
 | ordem | SMALLINT | posição do item na descrição |
 | texto | TEXT | trecho da descrição, ex.: "1 bife" |
-| gramas | NUMERIC | informado ou porção padrão × unidades (RN-016) |
+| gramas | NUMERIC | quantidade convertida em gramas pelo Gemini (RN-016) |
 | kcal | NUMERIC | **copiado** no momento do registro |
 | proteina_g / carbo_g / gordura_g | NUMERIC | copiados no momento do registro |
 
@@ -195,9 +195,8 @@ kally/
     ├── main.py         # inicia o bot e aplica as migrações
     ├── handlers.py     # comandos: /r, /retro, /dia, /semana, /peso, /exportar, /id
     ├── botoes.py       # corrigir e apagar (RN-015)
-    ├── parser.py       # separa itens, quantidades e datas do /retro
-    ├── alimentos.py    # busca na base e completa com o Gemini (RN-016)
-    ├── gemini.py       # chamada à IA, schema, prompt, normalização do nome e validação
+    ├── parser.py       # só as datas do /retro (D-041)
+    ├── gemini.py       # chamada à IA, novas tentativas, schema, prompt, normalização do nome e validação
     ├── relatorios.py   # textos do /dia e /semana, geração dos CSVs
     └── db.py           # conexão e consultas no Postgres
 ```
@@ -237,7 +236,7 @@ Ambos com `restart: unless-stopped`, para voltar sozinhos depois de queda de luz
 - **Fuso:** calcular o dia com `ZoneInfo("America/Sao_Paulo")` no código, sem depender da variável `TZ` do container (RN-001).
 - **Horário da mensagem:** usar `message.date` do Telegram, não a hora do processamento (RN-007).
 - **Grupos autorizados:** filtrar por `ALLOWED_CHAT_IDS` antes de qualquer outra coisa (RN-002).
-- **Gemini:** saída estruturada, timeout de 15 s, sem nova tentativa (RN-017). No plano gratuito, o Google pode usar os dados enviados.
+- **Gemini:** saída estruturada, resposta validada, novas tentativas só nas falhas passageiras e dentro de um tempo máximo (RN-017; tempos definidos na etapa 4). No plano gratuito, o Google pode usar os dados enviados.
 - **Botões:** conferir no clique se quem apertou é o dono do registro e se o registro tem até 7 dias (RN-015).
 - **Backup:** `pg_dump` agendado no cron, principalmente em servidor caseiro.
 - **Segredos:** token e chaves nunca no repositório.
@@ -251,16 +250,21 @@ Cada etapa termina com algo funcionando no grupo.
 1. **Bot papagaio:** criar o bot no BotFather, responder no grupo, `/id` e o filtro de `ALLOWED_CHAT_IDS`
 2. **Docker, banco e `/peso`:** bot e Postgres no Docker Compose (D-035), migrações e o comando mais simples, que testa o banco de ponta a ponta sem IA
 3. **`/r` com o Gemini:** registro chamando a IA para a descrição inteira, com o total do dia
-4. **Base de alimentos:** `parser.py` e `alimentos.py`; a IA passa a ser chamada só para alimentos novos
-5. **Botões:** corrigir e apagar
-6. **`/retro`**
-7. **`/dia` e `/semana`**
-8. **`/exportar`:** os dois CSVs
-9. **Deploy** no servidor (o Docker já vem da etapa 2)
+4. **Resiliência do Gemini:** nova tentativa automática nas falhas passageiras e botão "Tentar de novo" (D-045)
+5. **`/dia`**
+6. **Botões:** corrigir e apagar
+7. **`/retro`**
+8. **`/semana`**
+9. **`/exportar`:** os dois CSVs
+10. **Deploy** no servidor (o Docker já vem da etapa 2)
+
+A antiga etapa 4 (base de alimentos com `parser.py` e `alimentos.py`) foi cortada: o modelo da etapa 3 é o definitivo (D-041). O roteiro atual é o de D-046.
 
 ### Fora do MVP
 - Fotos de pratos
 - Comando para ver e corrigir a base de alimentos (D-028)
 - Apagar todos os dados de uma pessoa (D-025)
 - Carregar a tabela TACO (D-027)
+- Modelo reserva do Gemini (D-045)
+- Cache de resposta por linha e nomes da base no prompt (D-042)
 - Painel web

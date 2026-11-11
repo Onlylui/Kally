@@ -39,7 +39,7 @@ Fixe as versões no `requirements.txt` (`pacote==x.y.z`). Antes de adicionar uma
 - **Nomes do domínio em português**, iguais aos dos docs e do banco: `refeicao`, `alimento`, `peso`, `registrar_refeicao`. Termos técnicos podem ficar em inglês (`handler`, `callback`).
 - Comentários e docstrings em português, só onde o código não se explica sozinho. Cite a regra quando ajudar: `# RN-007: vale o horário de envio da mensagem`.
 - Type hints em funções públicas.
-- Um arquivo por responsabilidade, como na estrutura do planejamento (`handlers.py`, `parser.py`, `alimentos.py`, `gemini.py`, `db.py`...).
+- Um arquivo por responsabilidade, como na estrutura do planejamento (`handlers.py`, `parser.py`, `gemini.py`, `relatorios.py`, `db.py`...).
 - Textos que o bot envia ficam iguais aos de `Docs/exemplos.md`.
 
 ## Regras técnicas obrigatórias
@@ -50,7 +50,7 @@ Fixe as versões no `requirements.txt` (`pacote==x.y.z`). Antes de adicionar uma
 - **SQL:** sempre com parâmetros (`$1`, `$2`). Nunca monte SQL com f-string ou concatenação.
 - **Transações:** refeição e itens são gravados na mesma transação.
 - **Migrações:** mudança no banco = novo arquivo em `migrations/` (`002_...sql`). Nunca edite uma migração já aplicada.
-- **Gemini:** timeout de 15 s, sem nova tentativa, resposta validada antes de usar (RN-016, RN-017).
+- **Gemini:** resposta validada antes de usar (RN-016); tempo limite, novas tentativas e botão "Tentar de novo" conforme a RN-017 (D-045). Siga os tempos e a lista de erros passageiros que estiverem decididos lá.
 - **Async:** nada bloqueante no loop (sem `time.sleep`, sem `requests`).
 - **Erros:** o bot nunca pode cair por causa de uma mensagem. Trate o erro, registre no log e responda algo útil quando fizer sentido.
 
