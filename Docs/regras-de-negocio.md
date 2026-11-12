@@ -132,7 +132,7 @@ Manda no chat um arquivo CSV com o histórico dos **dois participantes**, com **
 Registra e consulta o peso. É só armazenamento: não há cálculo nem relação com as calorias (D-013).
 
 - `/peso 82,4` → registra e responde: "João: 82,4 kg registrado (anterior: 83,1 kg em 28/10)".
-- `/peso` sem número → responde com a última pesagem: "João: 82,4 kg em 01/11".
+- `/peso` sem número → responde com a última pesagem: "João: 82,4 kg em dom 01/11".
 - Aceita vírgula ou ponto. Rejeita valores fora de 30 a 300 kg.
 - A data da pesagem é a do envio da mensagem (como na RN-007).
 - Mais de uma pesagem no mesmo dia: todas são guardadas; `/peso` mostra a mais recente.

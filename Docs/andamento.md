@@ -2,8 +2,8 @@
 
 Onde o projeto está no [roteiro](bot-dieta-planejamento.md#9-roteiro-de-desenvolvimento). **Leia este arquivo antes de começar qualquer etapa** e atualize-o quando uma etapa for aprovada pelo usuário.
 
-**Etapa atual:** 4 — Resiliência do Gemini (plano pronto, aguardando implementação)
-**Última atualização:** 10/11/2026
+**Etapa atual:** 4 — Resiliência do Gemini (em andamento, T1)
+**Última atualização:** 11/11/2026
 
 ---
 
@@ -16,7 +16,7 @@ Roteiro revisto em 10/11/2026 ([D-046](decisoes.md#d-046--novo-roteiro)).
 | 1 | Bot papagaio, `/id` e filtro de `ALLOWED_CHAT_IDS` | ✅ concluída | — |
 | 2 | Docker, banco, migrações e `/peso` | ✅ concluída (aprovada em 03/11/2026) | [etapa-2-banco-docker-peso.md](etapas/etapa-2-banco-docker-peso.md) |
 | 3 | `/r` com o Gemini | ✅ concluída (aprovada em 08/11/2026) | [etapa-3-r-gemini.md](etapas/etapa-3-r-gemini.md) · [decisões](etapas/etapa-3-decisoes.md) |
-| 4 | Resiliência do Gemini (nova tentativa automática e botão "Tentar de novo") | ⏳ próxima, plano pronto | [plano](etapas/etapa-4-resiliencia-gemini.md) · [decisões](etapas/etapa-4-decisoes.md) |
+| 4 | Resiliência do Gemini (nova tentativa automática e botão "Tentar de novo") | 🔧 em andamento | [plano](etapas/etapa-4-resiliencia-gemini.md) · [decisões](etapas/etapa-4-decisoes.md) |
 | 5 | `/dia` | ⬜ | — |
 | 6 | Botões de corrigir e apagar | ⬜ | — |
 | 7 | `/retro` | ⬜ | — |
@@ -50,6 +50,7 @@ Ressalvas da revisão da etapa 2, ainda não resolvidas. Não bloqueiam a etapa 
 - [ ] Healthcheck do `db` sem `-h 127.0.0.1`: na primeira subida o bot pode tentar conectar cedo e reiniciar uma vez.
 - [ ] RN-012 mostra "82,4 kg em 01/11"; o código e o `exemplos.md` usam "dom 01/11". Alinhar a RN.
 - [ ] Comando do `psql` nas seções 6 e 7 do plano da etapa 2 não funciona no host; o do README (`sh -c '...'`) é o correto.
+
 ## Como atualizar este arquivo
 
 - Ao começar uma etapa: status 🔧 e link para o plano em `Docs/etapas/`.

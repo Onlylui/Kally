@@ -75,7 +75,7 @@ No mínimo: `.env`, `.venv`, `.git`, `__pycache__/`, `.pytest_cache/`, `Docs/`.
 - `POSTGRES_USER`, `POSTGRES_PASSWORD` e `POSTGRES_DB` lidos do `.env` (o Compose lê o `.env` da pasta automaticamente);
 - volume nomeado `kally_dados` em `/var/lib/postgresql/data`;
 - porta `127.0.0.1:5433:5432`: acessível só da própria máquina, para consulta com DBeaver ou pgAdmin. A 5433 evita conflito com o Postgres local que já usa a 5432 (D-035);
-- `healthcheck` com `pg_isready -U $POSTGRES_USER -d $POSTGRES_DB`;
+- `healthcheck` com `pg_isready -h 127.0.0.1 -U $POSTGRES_USER -d $POSTGRES_DB`;
 - `restart: unless-stopped`.
 
 **Serviço `bot`:**
@@ -184,7 +184,7 @@ docker compose up -d --build        # sobe tudo (o --build é necessário na pri
 docker compose logs -f bot          # acompanha o log do bot
 docker compose restart bot          # aplica mudanças no código
 docker compose run --rm bot pytest  # roda os testes
-docker compose exec db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"   # abre o banco no terminal
+docker compose exec db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'   # abre o banco no terminal
 docker compose down                 # para tudo (os dados continuam no volume)
 ```
 
@@ -204,7 +204,7 @@ Estes comandos vão para o README (seção 9).
 6. `/peso 824` e `/peso abc`: as duas mensagens de erro.
 7. A outra pessoa manda `/peso 64,8`: "primeira pesagem" para ela, sem misturar com a primeira.
 8. `docker compose restart bot` e `/peso` de novo: o dado continua lá, e o log não reaplica a migração.
-9. No `psql`, `SELECT * FROM schema_versao;` mostra a versão 1, e `\dt` lista as 6 tabelas.
+9. No `psql` (comando da seção 6), `SELECT * FROM schema_versao;` mostra a versão 1, e `\dt` lista as 6 tabelas.
 
 ## 8. Critérios de aceite
 
