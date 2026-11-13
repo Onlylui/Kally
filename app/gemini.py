@@ -6,8 +6,9 @@ import math
 import time
 import unicodedata
 
+import httpx
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,16 @@ def criar_cliente(chave: str) -> genai.Client:
         api_key=chave,
         http_options=types.HttpOptions(retry_options=types.HttpRetryOptions(attempts=1)),
     )
+
+
+def eh_falha_passageira(erro: BaseException) -> bool:
+    """P1 / RN-017: só 5xx, 429, tempo esgotado e falha de conexão merecem nova tentativa."""
+    if isinstance(erro, errors.ServerError):
+        return True
+    if isinstance(erro, errors.ClientError):
+        return erro.code == 429
+    # Todo httpx.TransportError conta, inclusive UnsupportedProtocol e LocalProtocolError.
+    return isinstance(erro, (TimeoutError, httpx.TransportError))
 
 
 def normalizar_nome(nome: str) -> str:

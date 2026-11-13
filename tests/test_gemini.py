@@ -6,10 +6,19 @@ import logging
 import math
 from types import SimpleNamespace
 
+import httpx
 import pytest
+from google.genai import errors
 
 from app import gemini
-from app.gemini import FalhaGemini, ItemEstimado, RespostaGemini, normalizar_nome, validar_item
+from app.gemini import (
+    FalhaGemini,
+    ItemEstimado,
+    RespostaGemini,
+    eh_falha_passageira,
+    normalizar_nome,
+    validar_item,
+)
 
 
 def criar_item(**campos) -> ItemEstimado:
@@ -357,6 +366,68 @@ async def test_sdk_com_servidor_lento_respeita_o_timeout(subir_servidor, monkeyp
         with pytest.raises(FalhaGemini):
             await asyncio.wait_for(gemini.estimar(cliente, "modelo-falso", "arroz"), timeout=1)
     assert len(falso.corpos) == 1
+
+
+# --- eh_falha_passageira (P1, RN-017) ---
+
+@pytest.mark.parametrize(
+    "erro, passageira",
+    [
+        (errors.ServerError(500, {}), True),
+        (errors.ServerError(503, {}), True),
+        (errors.ClientError(429, {}), True),
+        (TimeoutError(), True),
+        (httpx.ConnectError("recusada"), True),
+        (httpx.ReadTimeout("lento"), True),
+        (httpx.RemoteProtocolError("cortada"), True),
+        (errors.ClientError(400, {}), False),
+        (errors.ClientError(401, {}), False),
+        (errors.ClientError(403, {}), False),
+        (errors.ClientError(404, {}), False),
+        (errors.APIError(302, {}), False),
+        (ValueError(), False),
+        (RuntimeError(), False),
+        # P1 à risca: OSError solto não é falha de conexão do httpx.
+        (OSError(), False),
+        (ConnectionError(), False),
+        (FalhaGemini(), False),
+        # Cancelamento nunca vira nova tentativa.
+        (asyncio.CancelledError(), False),
+    ],
+)
+def test_eh_falha_passageira(erro, passageira):
+    assert eh_falha_passageira(erro) is passageira
+
+
+async def erro_do_sdk(cliente) -> BaseException:
+    """Chama o SDK direto, sem passar por estimar, e devolve a exceção que ele lançou."""
+    with pytest.raises(Exception) as capturado:
+        await cliente.aio.models.generate_content(model="modelo-falso", contents="arroz")
+    return capturado.value
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status, passageira", [(503, True), (500, True), (429, True), (400, False), (404, False)])
+async def test_sdk_erro_http_classificado(subir_servidor, status, passageira):
+    falso = ServidorFalso(status=status, texto="{}")
+    servidor, cliente = await subir_servidor(falso)
+    async with servidor:
+        erro = await erro_do_sdk(cliente)
+    assert eh_falha_passageira(erro) is passageira
+
+
+@pytest.mark.asyncio
+async def test_sdk_porta_fechada_e_passageira(monkeypatch):
+    # Protege contra o SDK trocar o httpx por outro transporte (ex.: aiohttp).
+    servidor = await asyncio.start_server(lambda *_: None, "127.0.0.1", 0)
+    porta = servidor.sockets[0].getsockname()[1]
+    servidor.close()
+    await servidor.wait_closed()
+    monkeypatch.setenv("GOOGLE_GEMINI_BASE_URL", f"http://127.0.0.1:{porta}")
+
+    erro = await erro_do_sdk(gemini.criar_cliente("chave-falsa"))
+    assert isinstance(erro, httpx.TransportError)
+    assert eh_falha_passageira(erro)
 
 
 # --- log ---
