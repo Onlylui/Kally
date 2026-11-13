@@ -5,6 +5,7 @@ import logging
 import math
 import time
 import unicodedata
+from collections.abc import Awaitable, Callable
 
 import httpx
 from google import genai
@@ -13,8 +14,13 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-# RN-017: tempo total da chamada. O timeout do SDK não limita o total.
-TIMEOUT_SEGUNDOS = 15
+# RN-017 / P2: novas tentativas só nas falhas passageiras, dentro de um orçamento de tempo.
+TENTATIVAS = 3
+ESPERAS_SEGUNDOS = (2, 5)  # espera depois da 1ª e da 2ª falha
+TIMEOUT_SEGUNDOS = 15  # limite de cada tentativa; o timeout do SDK não limita o total
+ORCAMENTO_SEGUNDOS = 40  # limite de todas as tentativas juntas
+MINIMO_PARA_TENTAR_SEGUNDOS = 5  # com 5 s ou menos sobrando, não começa outra tentativa
+AVISO_SEGUNDOS = 2  # limite do aviso antes de cada tentativa ("digitando…", P3)
 
 KCAL_100G_MAXIMO = 900
 MACRO_100G_MAXIMO = 100  # 100 g de alimento não têm mais de 100 g de um macro
@@ -62,7 +68,7 @@ class FalhaGemini(Exception):
 
 
 def criar_cliente(chave: str) -> genai.Client:
-    """Cliente do Gemini sem nova tentativa automática (D-023)."""
+    """Cliente do Gemini sem nova tentativa do SDK: as novas tentativas são do `estimar` (D-045)."""
     return genai.Client(
         api_key=chave,
         http_options=types.HttpOptions(retry_options=types.HttpRetryOptions(attempts=1)),
@@ -123,11 +129,11 @@ def validar_item(item: ItemEstimado) -> bool:
     return item.alcoolico or macros_coerentes(item)
 
 
-async def estimar(cliente: genai.Client, modelo: str, texto: str) -> RespostaGemini:
-    """Pede a estimativa uma única vez e devolve a resposta já validada.
+async def _chamar_uma_vez(cliente: genai.Client, modelo: str, texto: str, limite: float) -> RespostaGemini:
+    """Uma chamada ao Gemini, com a resposta já validada.
 
-    Lança FalhaGemini em qualquer falha. Um item inválido cancela tudo.
-    `texto` não precisa ser a descrição inteira: a etapa 4 passa só o que a base não conhece.
+    Erro do SDK ou tempo esgotado sobem crus, para o `estimar` decidir se tenta de novo.
+    Resposta fora do schema ou item inválido viram FalhaGemini (RN-016): não são repetidos.
     """
     configuracao = types.GenerateContentConfig(
         system_instruction=PROMPT,
@@ -135,32 +141,90 @@ async def estimar(cliente: genai.Client, modelo: str, texto: str) -> RespostaGem
         response_mime_type="application/json",
         response_schema=RespostaGemini,
     )
+    async with asyncio.timeout(limite):
+        resposta = await cliente.aio.models.generate_content(
+            model=modelo,
+            contents=texto,
+            config=configuracao,
+        )
 
-    inicio = time.monotonic()
-    try:
-        async with asyncio.timeout(TIMEOUT_SEGUNDOS):
-            resposta = await cliente.aio.models.generate_content(
-                model=modelo,
-                contents=texto,
-                config=configuracao,
-            )
-    except Exception as erro:
-        # Só o tipo do erro: a mensagem pode trazer dados da requisição.
-        duracao = time.monotonic() - inicio
-        logger.warning("Gemini falhou em %.1f s: %s", duracao, type(erro).__name__)
-        raise FalhaGemini from None
-
-    duracao = time.monotonic() - inicio
     estimativa = resposta.parsed
-
     # O SDK não lança exceção para JSON truncado, fora do schema ou sem candidatos.
     if not isinstance(estimativa, RespostaGemini):
-        logger.warning("Gemini respondeu em %.1f s: resposta fora do schema", duracao)
-        raise FalhaGemini
-
+        raise FalhaGemini("resposta fora do schema")
     if not all(validar_item(item) for item in estimativa.itens):
-        logger.warning("Gemini respondeu em %.1f s: item inválido", duracao)
-        raise FalhaGemini
-
-    logger.info("Gemini respondeu em %.1f s: %d item(ns)", duracao, len(estimativa.itens))
+        raise FalhaGemini("item inválido")
     return estimativa
+
+
+async def _avisar(antes_de_tentar: Callable[[], Awaitable[None]]) -> None:
+    """P3: o aviso ("digitando…") nunca derruba nem trava a estimativa."""
+    try:
+        async with asyncio.timeout(AVISO_SEGUNDOS):
+            await antes_de_tentar()
+    except Exception as erro:
+        logger.warning("Aviso antes da tentativa falhou: %s", type(erro).__name__)
+
+
+async def estimar(
+    cliente: genai.Client,
+    modelo: str,
+    texto: str,
+    antes_de_tentar: Callable[[], Awaitable[None]] | None = None,
+    # relogio e dormir existem só para os testes.
+    relogio: Callable[[], float] = time.monotonic,
+    dormir: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> RespostaGemini:
+    """Pede a estimativa e devolve a resposta já validada (RN-016, RN-017).
+
+    Falhas passageiras são repetidas até TENTATIVAS vezes, dentro de ORCAMENTO_SEGUNDOS.
+    `antes_de_tentar`, se vier, é chamada antes de cada tentativa.
+    FalhaGemini é a única exceção que sai daqui. Um item inválido cancela tudo.
+    """
+    inicio = relogio()
+    for tentativa in range(1, TENTATIVAS + 1):
+        if antes_de_tentar is not None:
+            await _avisar(antes_de_tentar)
+
+        # O tempo do aviso conta no orçamento.
+        restante = ORCAMENTO_SEGUNDOS - (relogio() - inicio)
+        if restante <= MINIMO_PARA_TENTAR_SEGUNDOS:
+            logger.warning("Gemini desistiu: sem tempo para a tentativa %d/%d", tentativa, TENTATIVAS)
+            raise FalhaGemini
+        limite = min(TIMEOUT_SEGUNDOS, restante)
+
+        comeco = relogio()
+        try:
+            estimativa = await _chamar_uma_vez(cliente, modelo, texto, limite)
+        except FalhaGemini as falha:
+            logger.warning(
+                "Gemini tentativa %d/%d respondeu em %.1f s: %s",
+                tentativa, TENTATIVAS, relogio() - comeco, falha,
+            )
+            raise
+        except Exception as erro:
+            # Só o tipo do erro: a mensagem pode trazer dados da requisição.
+            logger.warning(
+                "Gemini tentativa %d/%d falhou em %.1f s: %s",
+                tentativa, TENTATIVAS, relogio() - comeco, type(erro).__name__,
+            )
+            if not eh_falha_passageira(erro) or tentativa == TENTATIVAS:
+                raise FalhaGemini from None
+
+            espera = ESPERAS_SEGUNDOS[tentativa - 1]
+            restante = ORCAMENTO_SEGUNDOS - (relogio() - inicio)
+            if restante - espera <= MINIMO_PARA_TENTAR_SEGUNDOS:
+                logger.warning(
+                    "Gemini desistiu: sem tempo para a tentativa %d/%d", tentativa + 1, TENTATIVAS
+                )
+                raise FalhaGemini from None
+            await dormir(espera)
+            continue
+
+        logger.info(
+            "Gemini respondeu em %.1f s na tentativa %d/%d: %d item(ns)",
+            relogio() - comeco, tentativa, TENTATIVAS, len(estimativa.itens),
+        )
+        return estimativa
+
+    raise FalhaGemini  # não chega aqui: a última tentativa sempre devolve ou lança

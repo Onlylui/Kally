@@ -243,33 +243,335 @@ async def test_erro_da_chamada_vira_falha(erro):
     assert len(chamadas) == 1
 
 
+async def dormir_falso(_segundos):
+    """Não dorme de verdade: o teste não fica lento."""
+
+
 @pytest.mark.asyncio
-async def test_timeout_total(monkeypatch):
+async def test_timeout_por_tentativa(monkeypatch):
     monkeypatch.setattr(gemini, "TIMEOUT_SEGUNDOS", 0.05)
+    chamadas = []
 
     async def generate_content(**_):
+        chamadas.append(1)
         await asyncio.sleep(5)
 
     modelos = SimpleNamespace(generate_content=generate_content)
     cliente = SimpleNamespace(aio=SimpleNamespace(models=modelos))
     with pytest.raises(FalhaGemini):
-        await gemini.estimar(cliente, "modelo", "arroz")
+        await gemini.estimar(cliente, "modelo", "arroz", dormir=dormir_falso)
+    # Tempo esgotado é passageiro: as 3 tentativas estouram.
+    assert len(chamadas) == 3
 
 
-def test_timeout_e_de_15_segundos():
+def test_constantes_de_tempo():
+    # RN-017 / P2 / P3
+    assert gemini.TENTATIVAS == 3
+    assert gemini.ESPERAS_SEGUNDOS == (2, 5)
     assert gemini.TIMEOUT_SEGUNDOS == 15
+    assert gemini.ORCAMENTO_SEGUNDOS == 40
+    assert gemini.MINIMO_PARA_TENTAR_SEGUNDOS == 5
+    assert gemini.AVISO_SEGUNDOS == 2
+
+
+# --- laço de tentativas (RN-017, P1, P2), com relógio e espera falsos ---
+
+class TempoFalso:
+    """Relógio que só anda quando o teste manda; `dormir` só soma e anota."""
+
+    def __init__(self):
+        self.agora = 0.0
+        self.esperas = []
+
+    def relogio(self) -> float:
+        return self.agora
+
+    async def dormir(self, segundos):
+        self.esperas.append(segundos)
+        self.agora += segundos
+
+
+RESPOSTA_OK = RespostaGemini(itens=[criar_item()], ignorados=[])
+
+
+def criar_cliente_roteiro(tempo: TempoFalso, roteiro):
+    """Cada chamada consome um passo `(duracao, resultado)`: avança o relógio e lança ou devolve."""
+    passos = iter(roteiro)
+    chamadas = []
+
+    async def generate_content(**_):
+        chamadas.append(1)
+        duracao, resultado = next(passos)
+        tempo.agora += duracao
+        if isinstance(resultado, BaseException):
+            raise resultado
+        return SimpleNamespace(parsed=resultado)
+
+    modelos = SimpleNamespace(generate_content=generate_content)
+    return SimpleNamespace(aio=SimpleNamespace(models=modelos)), chamadas
+
+
+async def estimar_com_roteiro(tempo, roteiro, **argumentos):
+    cliente, chamadas = criar_cliente_roteiro(tempo, roteiro)
+    try:
+        return await gemini.estimar(
+            cliente, "modelo", "arroz", relogio=tempo.relogio, dormir=tempo.dormir, **argumentos
+        ), chamadas
+    except FalhaGemini as falha:
+        falha.chamadas = chamadas
+        raise
+
+
+def erro_503():
+    return errors.ServerError(503, {})
+
+
+@pytest.mark.asyncio
+async def test_503_e_depois_sucesso():
+    tempo = TempoFalso()
+    resposta, chamadas = await estimar_com_roteiro(tempo, [(1, erro_503()), (1, RESPOSTA_OK)])
+    assert resposta is RESPOSTA_OK
+    assert len(chamadas) == 2
+    assert tempo.esperas == [2]
+
+
+@pytest.mark.asyncio
+async def test_503_duas_vezes_e_depois_sucesso():
+    tempo = TempoFalso()
+    resposta, chamadas = await estimar_com_roteiro(
+        tempo, [(1, erro_503()), (1, erro_503()), (1, RESPOSTA_OK)]
+    )
+    assert resposta is RESPOSTA_OK
+    assert len(chamadas) == 3
+    assert tempo.esperas == [2, 5]
+
+
+@pytest.mark.asyncio
+async def test_503_tres_vezes_e_falha():
+    tempo = TempoFalso()
+    with pytest.raises(FalhaGemini) as falha:
+        await estimar_com_roteiro(tempo, [(1, erro_503())] * 3)
+    assert len(falha.value.chamadas) == 3
+    assert tempo.esperas == [2, 5]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "erro", [errors.ClientError(429, {}), TimeoutError(), httpx.ConnectError("recusada")]
+)
+async def test_outras_falhas_passageiras_sao_repetidas(erro):
+    tempo = TempoFalso()
+    resposta, chamadas = await estimar_com_roteiro(tempo, [(1, erro), (1, RESPOSTA_OK)])
+    assert resposta is RESPOSTA_OK
+    assert len(chamadas) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "erro", [errors.ClientError(404, {}), errors.ClientError(400, {}), ValueError("x")]
+)
+async def test_falha_nao_passageira_nao_repete(erro):
+    tempo = TempoFalso()
+    with pytest.raises(FalhaGemini) as falha:
+        await estimar_com_roteiro(tempo, [(1, erro), (1, RESPOSTA_OK)])
+    assert len(falha.value.chamadas) == 1
+    assert tempo.esperas == []
+
+
+ITEM_INVALIDO = RespostaGemini(itens=[criar_item(kcal_100g=1000)], ignorados=[])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("resultado", [None, ITEM_INVALIDO])
+async def test_fora_do_schema_e_item_invalido_nao_repetem(resultado):
+    tempo = TempoFalso()
+    with pytest.raises(FalhaGemini) as falha:
+        await estimar_com_roteiro(tempo, [(1, resultado), (1, RESPOSTA_OK)])
+    assert len(falha.value.chamadas) == 1
+    assert tempo.esperas == []
+
+
+@pytest.mark.asyncio
+async def test_503_e_depois_fora_do_schema_para_na_segunda():
+    tempo = TempoFalso()
+    with pytest.raises(FalhaGemini) as falha:
+        await estimar_com_roteiro(tempo, [(1, erro_503()), (1, None), (1, RESPOSTA_OK)])
+    assert len(falha.value.chamadas) == 2
+
+
+@pytest.mark.asyncio
+async def test_lista_vazia_nao_repete():
+    tempo = TempoFalso()
+    vazia = RespostaGemini(itens=[], ignorados=["kkkk"])
+    resposta, chamadas = await estimar_com_roteiro(tempo, [(1, vazia)])
+    assert resposta.itens == []
+    assert len(chamadas) == 1
+
+
+@pytest.mark.asyncio
+async def test_orcamento_impede_a_terceira_tentativa(caplog):
+    # 15 s esgotados + 2 s de espera + 15 s esgotados = 32 s; com a espera de 5 s sobrariam 3 s.
+    tempo = TempoFalso()
+    with caplog.at_level(logging.WARNING, logger="app.gemini"):
+        with pytest.raises(FalhaGemini) as falha:
+            await estimar_com_roteiro(tempo, [(15, TimeoutError()), (15, TimeoutError()), (1, RESPOSTA_OK)])
+    assert len(falha.value.chamadas) == 2
+    assert tempo.esperas == [2]
+    assert "desistiu" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_limite_da_ultima_tentativa_respeita_o_orcamento(monkeypatch):
+    tempo = TempoFalso()
+    limites = []
+    duracoes = iter([None, 10, None])  # None: esgota o limite recebido
+
+    async def chamar_falso(cliente, modelo, texto, limite):
+        limites.append(limite)
+        duracao = next(duracoes)
+        tempo.agora += limite if duracao is None else duracao
+        if len(limites) < 3:
+            raise TimeoutError if duracao is None else erro_503()
+        return RESPOSTA_OK
+
+    monkeypatch.setattr(gemini, "_chamar_uma_vez", chamar_falso)
+    resposta = await gemini.estimar(None, "modelo", "arroz", relogio=tempo.relogio, dormir=tempo.dormir)
+
+    # 15 + 2 + 10 + 5 = 32 s gastos: sobram 8 s para a terceira.
+    assert resposta is RESPOSTA_OK
+    assert limites == [15, 15, 8]
+    assert tempo.esperas == [2, 5]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("gasto_antes, tenta", [(30, False), (29.9, True)])
+async def test_borda_do_minimo_para_tentar(gasto_antes, tenta):
+    # Depois da 2ª falha e da espera de 5 s sobram 40 - gasto_antes - 5. Com 5 s exatos, desiste.
+    tempo = TempoFalso()
+    primeira = gasto_antes - 2 - 1  # 1ª tentativa + espera de 2 s + 2ª tentativa de 1 s
+    roteiro = [(primeira, erro_503()), (1, erro_503()), (1, RESPOSTA_OK)]
+    if tenta:
+        resposta, chamadas = await estimar_com_roteiro(tempo, roteiro)
+        assert resposta is RESPOSTA_OK
+        assert len(chamadas) == 3
+    else:
+        with pytest.raises(FalhaGemini) as falha:
+            await estimar_com_roteiro(tempo, roteiro)
+        assert len(falha.value.chamadas) == 2
+
+
+@pytest.mark.asyncio
+async def test_antes_de_tentar_e_chamado_em_cada_tentativa():
+    tempo = TempoFalso()
+    avisos = []
+
+    async def avisar():
+        avisos.append(tempo.agora)
+
+    resposta, _ = await estimar_com_roteiro(
+        tempo, [(1, erro_503()), (1, erro_503()), (1, RESPOSTA_OK)], antes_de_tentar=avisar
+    )
+    assert resposta is RESPOSTA_OK
+    assert len(avisos) == 3
+
+
+@pytest.mark.asyncio
+async def test_aviso_com_erro_nao_derruba_a_estimativa(caplog):
+    tempo = TempoFalso()
+
+    async def avisar():
+        raise RuntimeError("telegram fora")
+
+    with caplog.at_level(logging.WARNING, logger="app.gemini"):
+        resposta, chamadas = await estimar_com_roteiro(tempo, [(1, RESPOSTA_OK)], antes_de_tentar=avisar)
+    assert resposta is RESPOSTA_OK
+    assert len(chamadas) == 1
+    assert "RuntimeError" in caplog.text
+    assert "telegram fora" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_aviso_travado_e_cortado(monkeypatch, caplog):
+    monkeypatch.setattr(gemini, "AVISO_SEGUNDOS", 0.01)
+    tempo = TempoFalso()
+
+    async def avisar():
+        await asyncio.sleep(5)
+
+    with caplog.at_level(logging.WARNING, logger="app.gemini"):
+        resposta, _ = await estimar_com_roteiro(tempo, [(1, RESPOSTA_OK)], antes_de_tentar=avisar)
+    assert resposta is RESPOSTA_OK
+    assert "TimeoutError" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_tempo_do_aviso_conta_no_limite(monkeypatch):
+    tempo = TempoFalso()
+    limites = []
+
+    async def avisar():
+        tempo.agora += 30
+
+    async def chamar_falso(cliente, modelo, texto, limite):
+        limites.append(limite)
+        return RESPOSTA_OK
+
+    monkeypatch.setattr(gemini, "_chamar_uma_vez", chamar_falso)
+    await gemini.estimar(
+        None, "modelo", "arroz", antes_de_tentar=avisar, relogio=tempo.relogio, dormir=tempo.dormir
+    )
+    assert limites == [10]
+
+
+@pytest.mark.asyncio
+async def test_aviso_que_esgota_o_orcamento_desiste_sem_chamar():
+    tempo = TempoFalso()
+    avisos = []
+
+    async def avisar():
+        avisos.append(1)
+        if len(avisos) == 2:
+            tempo.agora += 32  # 1 + 2 + 32 = 35 s: sobram 5 s, não tenta
+
+    with pytest.raises(FalhaGemini) as falha:
+        await estimar_com_roteiro(tempo, [(1, erro_503()), (1, RESPOSTA_OK)], antes_de_tentar=avisar)
+    assert len(falha.value.chamadas) == 1
+
+
+@pytest.mark.asyncio
+async def test_cancelamento_durante_a_espera_nao_vira_falha():
+    entrou = asyncio.Event()
+
+    async def dormir_para_sempre(_segundos):
+        entrou.set()
+        await asyncio.Event().wait()
+
+    cliente, _ = criar_cliente_roteiro(TempoFalso(), [(0, erro_503())])
+    tarefa = asyncio.create_task(gemini.estimar(cliente, "modelo", "arroz", dormir=dormir_para_sempre))
+    await entrou.wait()
+    tarefa.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await tarefa
 
 
 # --- estimar com o SDK de verdade, contra um servidor HTTP local ---
 
 class ServidorFalso:
-    """Imita o endpoint do Gemini e conta as requisições."""
+    """Imita o endpoint do Gemini e conta as requisições.
+
+    `status` e `texto` podem ser listas: um valor por requisição, na ordem.
+    """
 
     def __init__(self, status=200, texto="", atraso=0.0):
         self.status = status
         self.texto = texto
         self.atraso = atraso
         self.corpos = []
+
+    def _da_vez(self, valor):
+        if isinstance(valor, list):
+            return valor[len(self.corpos) - 1]
+        return valor
 
     async def atender(self, leitor, escritor):
         cabecalhos = (await leitor.readuntil(b"\r\n\r\n")).decode().lower()
@@ -280,10 +582,10 @@ class ServidorFalso:
         await asyncio.sleep(self.atraso)
 
         corpo = json.dumps(
-            {"candidates": [{"content": {"role": "model", "parts": [{"text": self.texto}]}}]}
+            {"candidates": [{"content": {"role": "model", "parts": [{"text": self._da_vez(self.texto)}]}}]}
         ).encode()
         escritor.write(
-            f"HTTP/1.1 {self.status} X\r\ncontent-type: application/json\r\n"
+            f"HTTP/1.1 {self._da_vez(self.status)} X\r\ncontent-type: application/json\r\n"
             f"content-length: {len(corpo)}\r\nconnection: close\r\n\r\n".encode()
             + corpo
         )
@@ -336,14 +638,25 @@ async def test_sdk_com_resposta_valida(subir_servidor):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("status", [429, 500, 503])
-async def test_sdk_com_erro_http_nao_tenta_de_novo(subir_servidor, status):
+@pytest.mark.parametrize("status, tentativas", [(429, 3), (500, 3), (503, 3), (400, 1), (404, 1)])
+async def test_sdk_com_erro_http_conta_as_tentativas(subir_servidor, status, tentativas):
     falso = ServidorFalso(status=status, texto="{}")
     servidor, cliente = await subir_servidor(falso)
     async with servidor:
         with pytest.raises(FalhaGemini):
-            await gemini.estimar(cliente, "modelo-falso", "arroz")
-    assert len(falso.corpos) == 1
+            await gemini.estimar(cliente, "modelo-falso", "arroz", dormir=dormir_falso)
+    assert len(falso.corpos) == tentativas
+
+
+@pytest.mark.asyncio
+async def test_sdk_503_e_depois_sucesso(subir_servidor):
+    valido = json.dumps({"itens": [ITEM_JSON], "ignorados": []})
+    falso = ServidorFalso(status=[503, 200], texto=["{}", valido])
+    servidor, cliente = await subir_servidor(falso)
+    async with servidor:
+        resposta = await gemini.estimar(cliente, "modelo-falso", "arroz", dormir=dormir_falso)
+    assert resposta.itens[0].nome == "arroz"
+    assert len(falso.corpos) == 2
 
 
 @pytest.mark.asyncio
@@ -364,8 +677,11 @@ async def test_sdk_com_servidor_lento_respeita_o_timeout(subir_servidor, monkeyp
     servidor, cliente = await subir_servidor(falso)
     async with servidor:
         with pytest.raises(FalhaGemini):
-            await asyncio.wait_for(gemini.estimar(cliente, "modelo-falso", "arroz"), timeout=1)
-    assert len(falso.corpos) == 1
+            await asyncio.wait_for(
+                gemini.estimar(cliente, "modelo-falso", "arroz", dormir=dormir_falso), timeout=3
+            )
+    # Tempo esgotado é passageiro: as 3 tentativas chegam ao servidor.
+    assert len(falso.corpos) == 3
 
 
 # --- eh_falha_passageira (P1, RN-017) ---
@@ -413,12 +729,15 @@ async def test_sdk_erro_http_classificado(subir_servidor, status, passageira):
     servidor, cliente = await subir_servidor(falso)
     async with servidor:
         erro = await erro_do_sdk(cliente)
+    assert isinstance(erro, errors.APIError)
+    assert erro.code == status
     assert eh_falha_passageira(erro) is passageira
 
 
 @pytest.mark.asyncio
 async def test_sdk_porta_fechada_e_passageira(monkeypatch):
     # Protege contra o SDK trocar o httpx por outro transporte (ex.: aiohttp).
+    # Risco remoto aceito: outro processo ocupar a porta entre o close e a conexão.
     servidor = await asyncio.start_server(lambda *_: None, "127.0.0.1", 0)
     porta = servidor.sockets[0].getsockname()[1]
     servidor.close()
@@ -439,7 +758,33 @@ async def test_log_tem_a_duracao_e_nao_tem_o_texto(caplog):
     with caplog.at_level(logging.INFO, logger="app.gemini"):
         await gemini.estimar(cliente, "modelo", "texto-secreto-da-pessoa")
     assert "Gemini respondeu em" in caplog.text
+    assert "na tentativa 1/3" in caplog.text
     assert "texto-secreto-da-pessoa" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_log_da_falha_passageira_nao_vaza_detalhes(caplog):
+    tempo = TempoFalso()
+    secreto = errors.ServerError(503, {"error": {"message": "chave-secreta"}})
+    cliente, _ = criar_cliente_roteiro(tempo, [(0.8, secreto), (1, RESPOSTA_OK)])
+    with caplog.at_level(logging.INFO, logger="app.gemini"):
+        await gemini.estimar(
+            cliente, "modelo", "texto-secreto-da-pessoa", relogio=tempo.relogio, dormir=tempo.dormir
+        )
+    assert "Gemini tentativa 1/3 falhou em 0.8 s: ServerError" in caplog.text
+    assert "na tentativa 2/3" in caplog.text
+    assert "chave-secreta" not in caplog.text
+    assert "texto-secreto-da-pessoa" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_log_de_resposta_invalida_tem_o_motivo(caplog):
+    tempo = TempoFalso()
+    cliente, _ = criar_cliente_roteiro(tempo, [(1.2, None)])
+    with caplog.at_level(logging.WARNING, logger="app.gemini"):
+        with pytest.raises(FalhaGemini):
+            await gemini.estimar(cliente, "modelo", "arroz", relogio=tempo.relogio, dormir=tempo.dormir)
+    assert "Gemini tentativa 1/3 respondeu em 1.2 s: resposta fora do schema" in caplog.text
 
 
 @pytest.mark.asyncio

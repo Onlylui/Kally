@@ -76,12 +76,12 @@ Ao fim da etapa:
 **Ler:** P1, P2 e P3; `estimar` atual; testes `test_timeout_total` e `test_erro_da_chamada_vira_falha`.
 
 **Fazer:**
-1. Constantes no topo de `app/gemini.py`: `TENTATIVAS = 3`, `ESPERAS_SEGUNDOS = (2, 5)`, `TIMEOUT_SEGUNDOS = 15`, `ORCAMENTO_SEGUNDOS = 40`, `MINIMO_PARA_TENTAR_SEGUNDOS = 5`.
+1. Constantes no topo de `app/gemini.py`: `TENTATIVAS = 3`, `ESPERAS_SEGUNDOS = (2, 5)`, `TIMEOUT_SEGUNDOS = 15`, `ORCAMENTO_SEGUNDOS = 40`, `MINIMO_PARA_TENTAR_SEGUNDOS = 5`, `AVISO_SEGUNDOS = 2` (limite do `antes_de_tentar`).
 2. Separar a chamada única atual numa função interna (ex.: `_chamar_uma_vez(cliente, modelo, texto, limite)`), que continua validando schema e itens e lançando `FalhaGemini`.
 3. `estimar(cliente, modelo, texto, antes_de_tentar=None, relogio=time.monotonic, dormir=asyncio.sleep)`:
-   - `antes_de_tentar`: função assíncrona opcional, chamada antes de cada tentativa. Se ela lançar exceção, registra no log e segue (o "digitando…" nunca derruba o `/r`).
-   - Cada tentativa usa `min(TIMEOUT_SEGUNDOS, orçamento restante)`.
-   - Falha passageira (T2) com tentativas e orçamento sobrando: espera `ESPERAS_SEGUNDOS[i]` e tenta de novo. Se depois da espera sobrarem menos de `MINIMO_PARA_TENTAR_SEGUNDOS`, desiste.
+   - `antes_de_tentar`: função assíncrona opcional, chamada antes de cada tentativa, com limite de `AVISO_SEGUNDOS`. Se ela lançar exceção ou passar do limite, registra no log e segue (o "digitando…" nunca derruba nem trava o `/r`).
+   - Cada tentativa usa `min(TIMEOUT_SEGUNDOS, orçamento restante)`, calculado depois do aviso. Se sobrarem `MINIMO_PARA_TENTAR_SEGUNDOS` ou menos, desiste sem chamar o Gemini.
+   - Falha passageira (T2) com tentativas e orçamento sobrando: espera `ESPERAS_SEGUNDOS[i]` e tenta de novo. Se depois da espera sobrarem `MINIMO_PARA_TENTAR_SEGUNDOS` ou menos, desiste sem esperar.
    - Falha não passageira, resposta fora do schema ou item inválido: `FalhaGemini` na hora, sem repetir.
    - Lista vazia de itens continua **não** sendo falha.
    - `relogio` e `dormir` existem só para os testes.

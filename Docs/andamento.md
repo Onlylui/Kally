@@ -2,7 +2,7 @@
 
 Onde o projeto está no [roteiro](bot-dieta-planejamento.md#9-roteiro-de-desenvolvimento). **Leia este arquivo antes de começar qualquer etapa** e atualize-o quando uma etapa for aprovada pelo usuário.
 
-**Etapa atual:** 4 — Resiliência do Gemini (em andamento, T2)
+**Etapa atual:** 4 — Resiliência do Gemini (em andamento, T3)
 **Última atualização:** 12/11/2026
 
 ---

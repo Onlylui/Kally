@@ -245,7 +245,7 @@ Se um item não passar, a resposta inteira conta como inválida (RN-017). Isso v
 
 **Detalhes (D-048):**
 - **Falhas passageiras** são: erro do servidor do Gemini (5xx, 503), limite de requisições (429), tempo esgotado e falha de conexão. Resposta fora do schema e item inválido **não** são repetidos automaticamente, porque tendem a dar o mesmo erro (com `temperature=0`); para eles, só o botão.
-- Até **3 tentativas** no total, com esperas de 2 s e 5 s entre elas, cada uma com **15 s** de limite e todas dentro de **40 s** no total. Se sobrarem menos de 5 s, o bot não começa outra tentativa.
+- Até **3 tentativas** no total, com esperas de 2 s e 5 s entre elas, cada uma com **15 s** de limite e todas dentro de **40 s** no total. Se sobrarem 5 s ou menos, o bot não começa outra tentativa.
 - Enquanto tenta, o bot mostra "digitando…" no grupo.
 - Os outros comandos (`/peso`, o `/r` da outra pessoa) esperam na fila até o `/r` em andamento terminar (D-047).
 - A mensagem de falha:

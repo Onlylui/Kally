@@ -25,8 +25,8 @@ Base para os agentes `kally-python` e `kally-revisor`. Este documento não subst
 | # | Assunto | Decisão |
 |---|---|---|
 | P1 | Quais erros repetem sozinhos | Só os passageiros: `ServerError` (5xx, inclusive 503), `ClientError` com código 429, `TimeoutError` e falha de conexão (`httpx.TransportError` e subclasses). **Não** repetem: outros 4xx (configuração), resposta fora do schema e item inválido. |
-| P2 | Tentativas e tempos | Até **3 tentativas**; esperas de **2 s** e **5 s**; **15 s** por tentativa; **40 s** de orçamento total. Cada tentativa usa o menor entre 15 s e o que sobra do orçamento; com menos de 5 s sobrando, não começa outra. (A resposta bem-sucedida mais lenta nos logs levou 9,5 s.) |
-| P3 | Aviso enquanto tenta | "digitando…" (`send_chat_action`) antes de cada tentativa. Falha ao mandar a ação só vai para o log. |
+| P2 | Tentativas e tempos | Até **3 tentativas**; esperas de **2 s** e **5 s**; **15 s** por tentativa; **40 s** de orçamento total. Cada tentativa usa o menor entre 15 s e o que sobra do orçamento; com 5 s ou menos sobrando, não começa outra (decidido em 12/11/2026 na T3). (A resposta bem-sucedida mais lenta nos logs levou 9,5 s.) |
+| P3 | Aviso enquanto tenta | "digitando…" (`send_chat_action`) antes de cada tentativa, com limite de 2 s (`AVISO_SEGUNDOS`); o tempo do aviso conta no orçamento. Falha ou demora ao mandar a ação só vai para o log. |
 | P4 | Concorrência | **Fila mantida** (D-047). Não usar `block=False` nem trava no banco. |
 | P5 | Mensagem de falha e botão | `Não consegui estimar agora. Nada foi registrado.` + `[🔄 Tentar de novo]`. O botão aparece em **toda** falha do Gemini (passageira esgotada, fora do schema, item inválido) e em nenhum outro erro. |
 | P6 | Pedido pendente | Em memória, `bot_data["pendentes"]`, chave `(chat_id, message_id do /r original)`, `callback_data` = `tentar:<message_id>`. Guarda: `telegram_id` e nome do dono, `descricao` original, texto limpo e `message.date` do `/r`. Reiniciar o bot perde os pendentes. |
