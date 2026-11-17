@@ -8,9 +8,10 @@ import asyncpg
 import pytest
 from telegram import Message, Update
 from telegram.error import NetworkError
-from telegram.ext import MessageHandler
+from google.genai import errors
+from telegram.ext import CallbackContext, MessageHandler
 
-from app import handlers
+from app import gemini, handlers
 from app.gemini import FalhaGemini, ItemEstimado, RespostaGemini
 from app.handlers import (
     LIMITE_DESCRICAO,
@@ -307,6 +308,11 @@ async def test_r_sem_alimento_nao_grava(bot_teste, gemini_falso, banco_falso):
     assert await bot_teste.enviar("/r kkkkk") == [TEXTO_R_NENHUM_ALIMENTO]
     assert len(gemini_falso.chamadas) == 1
     assert banco_falso.alimentos == banco_falso.refeicoes == []
+    assert bot_teste.requisicao.eventos == [
+        ("acao", CHAT_AUTORIZADO, "typing"),
+        ("gemini", "kkkkk"),
+        ("mensagem", TEXTO_R_NENHUM_ALIMENTO),
+    ]
 
 
 @pytest.mark.asyncio
@@ -315,6 +321,134 @@ async def test_falha_do_gemini_nao_grava(bot_teste, gemini_falso, banco_falso):
     assert await bot_teste.enviar("/r arroz") == [TEXTO_FALHA_GEMINI]
     assert len(gemini_falso.chamadas) == 1
     assert banco_falso.alimentos == banco_falso.refeicoes == []
+    assert bot_teste.requisicao.eventos == [
+        ("acao", CHAT_AUTORIZADO, "typing"),
+        ("gemini", "arroz"),
+        ("mensagem", TEXTO_FALHA_GEMINI),
+    ]
+
+
+# --- "digitando…" (RN-017 / P3) ---
+
+def eventos_de_acao(bot_teste) -> list[tuple]:
+    return [evento for evento in bot_teste.requisicao.eventos if evento[0] == "acao"]
+
+
+@pytest.mark.asyncio
+async def test_r_manda_digitando_no_chat_certo_antes_do_gemini(bot_teste, gemini_falso, banco_falso):
+    gemini_falso.resposta = RespostaGemini(itens=[criar_item(gramas=200)], ignorados=[])
+    respostas = await bot_teste.enviar("/r 200 g de arroz")
+
+    assert bot_teste.requisicao.eventos == [
+        ("acao", CHAT_AUTORIZADO, "typing"),
+        ("gemini", "200 g de arroz"),
+        ("mensagem", respostas[0]),
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("texto", ["/r", "/r   ", "/r " + "a" * (LIMITE_DESCRICAO + 1)])
+async def test_r_vazio_e_longo_nao_mandam_digitando(bot_teste, gemini_falso, banco_falso, texto):
+    await bot_teste.enviar(texto)
+    assert eventos_de_acao(bot_teste) == []
+
+
+def resposta_valida_do_gemini() -> RespostaGemini:
+    return RespostaGemini(itens=[criar_item(gramas=200)], ignorados=[])
+
+
+@pytest.mark.asyncio
+async def test_falha_no_digitando_nao_impede_o_registro(bot_teste, banco_falso, monkeypatch, caplog):
+    # estimar real: só a chamada ao Gemini é trocada.
+    async def chamar_falso(cliente, modelo, texto, limite):
+        return resposta_valida_do_gemini()
+
+    monkeypatch.setattr(gemini, "_chamar_uma_vez", chamar_falso)
+    bot_teste.requisicao.falhar_acoes = True
+
+    respostas = await bot_teste.enviar("/r 200 g de arroz")
+
+    assert len(banco_falso.refeicoes) == 1
+    assert len(respostas) == 1
+    assert respostas[0].startswith("João: +260 kcal")
+    assert eventos_de_acao(bot_teste) == [("acao", CHAT_AUTORIZADO, "typing")]
+    assert "Aviso antes da tentativa falhou" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_digitando_em_cada_tentativa(bot_teste, banco_falso, monkeypatch):
+    # Sem espera entre as tentativas; nunca trocar o asyncio.sleep.
+    monkeypatch.setattr(gemini, "ESPERAS_SEGUNDOS", (0, 0))
+    tentativas = []
+
+    async def chamar_falso(cliente, modelo, texto, limite):
+        tentativas.append(texto)
+        if len(tentativas) == 1:
+            raise errors.ServerError(503, {})
+        return resposta_valida_do_gemini()
+
+    monkeypatch.setattr(gemini, "_chamar_uma_vez", chamar_falso)
+
+    respostas = await bot_teste.enviar("/r 200 g de arroz")
+
+    assert len(tentativas) == 2
+    assert eventos_de_acao(bot_teste) == [
+        ("acao", CHAT_AUTORIZADO, "typing"),
+        ("acao", CHAT_AUTORIZADO, "typing"),
+    ]
+    assert len(banco_falso.refeicoes) == 1
+    assert respostas[0].startswith("João: +260 kcal")
+
+
+# --- processar_refeicao chamada direto (P8) ---
+
+def contexto_de(bot_teste) -> CallbackContext:
+    return CallbackContext(bot_teste.app)
+
+
+@pytest.mark.asyncio
+async def test_processar_refeicao_usa_o_momento_recebido(bot_teste, gemini_falso, banco_falso):
+    gemini_falso.resposta = RespostaGemini(itens=[criar_item(gramas=200)], ignorados=[])
+
+    # 02:30 UTC de segunda ainda é domingo 23:30 em São Paulo (RN-001, RN-007).
+    momento = datetime(2026, 11, 2, 2, 30, tzinfo=timezone.utc)
+    texto = await handlers.processar_refeicao(
+        contexto_de(bot_teste), CHAT_AUTORIZADO, JOAO, "João", "200 g de arroz", "200 g de arroz", momento
+    )
+
+    telegram_id, chat_id, descricao, _, _, _, _, data, hora, _ = banco_falso.refeicoes[0]
+    assert (telegram_id, chat_id, descricao) == (JOAO, CHAT_AUTORIZADO, "200 g de arroz")
+    assert (data, hora) == (date(2026, 11, 1), time(23, 30))
+    assert texto.startswith("João: +260 kcal · total de 01/11: 1.420 kcal")
+    assert banco_falso.usuarios == []  # quem chama é que salva o usuário
+
+
+@pytest.mark.asyncio
+async def test_processar_refeicao_deixa_falha_gemini_subir(bot_teste, gemini_falso, banco_falso):
+    gemini_falso.erro = FalhaGemini()
+    momento = datetime(2026, 11, 1, 15, 0, tzinfo=timezone.utc)
+
+    with pytest.raises(FalhaGemini):
+        await handlers.processar_refeicao(
+            contexto_de(bot_teste), CHAT_AUTORIZADO, JOAO, "João", "arroz", "arroz", momento
+        )
+
+    assert banco_falso.alimentos == banco_falso.refeicoes == []
+    assert bot_teste.requisicao.enviadas == []
+
+
+@pytest.mark.asyncio
+async def test_processar_refeicao_sem_alimento_devolve_o_texto(bot_teste, gemini_falso, banco_falso):
+    gemini_falso.resposta = RespostaGemini(itens=[], ignorados=["kkkkk"])
+    momento = datetime(2026, 11, 1, 15, 0, tzinfo=timezone.utc)
+
+    texto = await handlers.processar_refeicao(
+        contexto_de(bot_teste), CHAT_AUTORIZADO, JOAO, "João", "kkkkk", "kkkkk", momento
+    )
+
+    assert texto == TEXTO_R_NENHUM_ALIMENTO
+    assert banco_falso.alimentos == banco_falso.refeicoes == []
+    assert bot_teste.requisicao.enviadas == []
 
 
 # --- filtro e silêncio ---
@@ -324,6 +458,7 @@ async def test_r_em_chat_nao_autorizado_nao_chama_o_gemini(bot_teste, gemini_fal
     assert await bot_teste.enviar("/r arroz", chat_id=CHAT_NAO_AUTORIZADO) == []
     assert gemini_falso.chamadas == []
     assert banco_falso.usuarios == []
+    assert eventos_de_acao(bot_teste) == []  # RN-002: barrado antes do "digitando…"
 
 
 @pytest.mark.asyncio

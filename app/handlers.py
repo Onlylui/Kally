@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 import asyncpg
 from telegram import Update
+from telegram.constants import ChatAction
 from telegram.ext import ApplicationHandlerStop, ContextTypes
 
 from app import db, gemini
@@ -272,6 +273,61 @@ def resposta_refeicao(
     return "\n".join(linhas)
 
 
+async def processar_refeicao(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    usuario_id: int,
+    nome: str,
+    descricao: str,
+    texto_limpo: str,
+    momento: datetime,
+) -> str:
+    """Estima com o Gemini, grava a refeição e devolve o texto da resposta.
+
+    `momento` é o horário de envio do /r (RN-007, P8). FalhaGemini e erros de banco sobem
+    para quem chamou. Não salva o usuário: quem chama já fez isso.
+    """
+    pool = context.bot_data["pool"]
+
+    async def avisar() -> None:
+        # RN-017 / P3: "digitando…" antes de cada tentativa. O limite de tempo e a falha
+        # do aviso ficam com o gemini._avisar.
+        await context.bot.send_chat_action(chat_id, ChatAction.TYPING)
+
+    estimativa = await gemini.estimar(
+        context.bot_data["gemini"],
+        context.bot_data["gemini_modelo"],
+        texto_limpo,
+        antes_de_tentar=avisar,
+    )
+
+    if not estimativa.itens:
+        return TEXTO_R_NENHUM_ALIMENTO
+
+    # RN-007: vale o horário de envio da mensagem, não o do processamento.
+    data, hora = data_hora_sao_paulo(momento)
+
+    base = await db.salvar_alimentos(pool, alimentos_para_salvar(estimativa.itens))
+    itens = calcular_itens(estimativa.itens, base)
+    total_dia = await db.registrar_refeicao(
+        pool,
+        usuario_id,
+        chat_id,
+        descricao,
+        int(sum(item["kcal"] for item in itens)),
+        sum(item["proteina_g"] for item in itens),
+        sum(item["carbo_g"] for item in itens),
+        sum(item["gordura_g"] for item in itens),
+        data,
+        hora,
+        itens,
+    )
+
+    # O relógio só decide o texto ("hoje" ou a data), nunca o dia da refeição (P5).
+    hoje = datetime.now(FUSO).date()
+    return resposta_refeicao(nome, itens, total_dia, data, hoje, estimativa.ignorados)
+
+
 async def comando_r(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/r <descrição>: estima com o Gemini, grava a refeição e responde com o total do dia."""
     mensagem = update.effective_message
@@ -279,6 +335,7 @@ async def comando_r(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     pool = context.bot_data["pool"]
     nome = usuario.first_name
 
+    # Antes das validações: com o banco fora do ar, a chamada ao Gemini não é gasta.
     await db.salvar_usuario(pool, usuario.id, nome)
 
     # `descricao` fica como a pessoa escreveu; só o texto limpo vai ao Gemini.
@@ -292,41 +349,14 @@ async def comando_r(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     try:
-        estimativa = await gemini.estimar(
-            context.bot_data["gemini"],
-            context.bot_data["gemini_modelo"],
-            texto_limpo,
+        texto = await processar_refeicao(
+            context, update.effective_chat.id, usuario.id, nome, descricao, texto_limpo, mensagem.date
         )
     except gemini.FalhaGemini:
         await mensagem.reply_text(TEXTO_FALHA_GEMINI)
         return
 
-    if not estimativa.itens:
-        await mensagem.reply_text(TEXTO_R_NENHUM_ALIMENTO)
-        return
-
-    # RN-007: vale o horário de envio da mensagem, não o do processamento.
-    data, hora = data_hora_sao_paulo(mensagem.date)
-
-    base = await db.salvar_alimentos(pool, alimentos_para_salvar(estimativa.itens))
-    itens = calcular_itens(estimativa.itens, base)
-    total_dia = await db.registrar_refeicao(
-        pool,
-        usuario.id,
-        update.effective_chat.id,
-        descricao,
-        int(sum(item["kcal"] for item in itens)),
-        sum(item["proteina_g"] for item in itens),
-        sum(item["carbo_g"] for item in itens),
-        sum(item["gordura_g"] for item in itens),
-        data,
-        hora,
-        itens,
-    )
-
-    # O relógio só decide o texto ("hoje" ou a data), nunca o dia da refeição (P5).
-    hoje = datetime.now(FUSO).date()
-    await mensagem.reply_text(resposta_refeicao(nome, itens, total_dia, data, hoje, estimativa.ignorados))
+    await mensagem.reply_text(texto)
 
 
 # --- Erros ---

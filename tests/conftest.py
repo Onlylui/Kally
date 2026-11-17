@@ -85,10 +85,16 @@ async def pool_teste():
 # --- Bot real do PTB, com requisições falsas ---
 
 class RequisicaoFalsa(BaseRequest):
-    """Responde como a API do Telegram, sem rede, e guarda os textos que o bot enviou."""
+    """Responde como a API do Telegram, sem rede, e guarda os textos que o bot enviou.
+
+    `eventos` guarda, na ordem, ("acao", chat_id, action) e ("mensagem", texto).
+    Com `falhar_acoes`, o sendChatAction devolve erro 400 e o PTB lança BadRequest.
+    """
 
     def __init__(self) -> None:
         self.enviadas: list[str] = []
+        self.eventos: list[tuple] = []
+        self.falhar_acoes = False
 
     @property
     def read_timeout(self) -> None:
@@ -107,12 +113,20 @@ class RequisicaoFalsa(BaseRequest):
         elif metodo == "sendMessage":
             parametros = request_data.parameters
             self.enviadas.append(parametros["text"])
+            self.eventos.append(("mensagem", parametros["text"]))
             resultado = {
                 "message_id": 1,
                 "date": 0,
                 "chat": {"id": parametros["chat_id"], "type": "group"},
                 "text": parametros["text"],
             }
+        elif metodo == "sendChatAction":
+            parametros = request_data.parameters
+            self.eventos.append(("acao", parametros["chat_id"], parametros["action"]))
+            if self.falhar_acoes:
+                corpo = {"ok": False, "error_code": 400, "description": "Bad Request: ação recusada"}
+                return 400, json.dumps(corpo).encode()
+            resultado = True
         else:
             resultado = True
         return 200, json.dumps({"ok": True, "result": resultado}).encode()
@@ -167,16 +181,23 @@ async def bot_teste():
         await app.process_update(update)
         return requisicao.enviadas[ja_enviadas:]
 
-    yield SimpleNamespace(app=app, enviar=enviar)
+    yield SimpleNamespace(app=app, enviar=enviar, requisicao=requisicao)
     await app.shutdown()
 
 
 @pytest.fixture
-def gemini_falso(monkeypatch):
-    """Troca o gemini.estimar: `resposta` define o retorno e `chamadas` guarda os textos."""
+def gemini_falso(monkeypatch, bot_teste):
+    """Troca o gemini.estimar: `resposta` define o retorno e `chamadas` guarda os textos.
+
+    Chama o `antes_de_tentar` uma vez, sem tratar erro, e registra ("gemini", texto)
+    nos `eventos` da requisição, para os testes conferirem a ordem.
+    """
     falso = SimpleNamespace(chamadas=[], resposta=None, erro=None)
 
-    async def estimar(cliente, modelo, texto):
+    async def estimar(cliente, modelo, texto, antes_de_tentar=None):
+        if antes_de_tentar is not None:
+            await antes_de_tentar()
+        bot_teste.requisicao.eventos.append(("gemini", texto))
         falso.chamadas.append(texto)
         if falso.erro:
             raise falso.erro
