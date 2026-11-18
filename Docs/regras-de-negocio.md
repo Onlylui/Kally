@@ -235,7 +235,7 @@ O bot guarda as calorias e os macros **por 100 g** de cada alimento que já viu.
 Se um item não passar, a resposta inteira conta como inválida (RN-017). Isso vale também para a porção padrão, mesmo ela não entrando na conta: é uma desvantagem aceita (D-044).
 
 ### RN-017 — Falha do Gemini
-**Status:** decidida (D-045, D-047, D-048; premissas da [etapa 4](etapas/etapa-4-decisoes.md) confirmadas em 10/11/2026)
+**Status:** decidida (D-045, D-047, D-048, D-049; premissas da [etapa 4](etapas/etapa-4-decisoes.md) confirmadas em 10/11/2026)
 
 **Decidido:**
 - Se o Gemini der erro, demorar demais ou devolver algo inválido (RN-016), o bot **não registra nada**.
@@ -246,7 +246,7 @@ Se um item não passar, a resposta inteira conta como inválida (RN-017). Isso v
 **Detalhes (D-048):**
 - **Falhas passageiras** são: erro do servidor do Gemini (5xx, 503), limite de requisições (429), tempo esgotado e falha de conexão. Resposta fora do schema e item inválido **não** são repetidos automaticamente, porque tendem a dar o mesmo erro (com `temperature=0`); para eles, só o botão.
 - Até **3 tentativas** no total, com esperas de 2 s e 5 s entre elas, cada uma com **15 s** de limite e todas dentro de **40 s** no total. Se sobrarem 5 s ou menos, o bot não começa outra tentativa.
-- Enquanto tenta, o bot mostra "digitando…" no grupo.
+- Enquanto trabalha no `/r` (tentativas, esperas e gravação), o bot mantém o "digitando…" visível no grupo (D-049).
 - Os outros comandos (`/peso`, o `/r` da outra pessoa) esperam na fila até o `/r` em andamento terminar (D-047).
 - A mensagem de falha:
 

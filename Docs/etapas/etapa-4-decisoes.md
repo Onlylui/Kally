@@ -26,7 +26,7 @@ Base para os agentes `kally-python` e `kally-revisor`. Este documento não subst
 |---|---|---|
 | P1 | Quais erros repetem sozinhos | Só os passageiros: `ServerError` (5xx, inclusive 503), `ClientError` com código 429, `TimeoutError` e falha de conexão (`httpx.TransportError` e subclasses). **Não** repetem: outros 4xx (configuração), resposta fora do schema e item inválido. |
 | P2 | Tentativas e tempos | Até **3 tentativas**; esperas de **2 s** e **5 s**; **15 s** por tentativa; **40 s** de orçamento total. Cada tentativa usa o menor entre 15 s e o que sobra do orçamento; com 5 s ou menos sobrando, não começa outra (decidido em 12/11/2026 na T3). (A resposta bem-sucedida mais lenta nos logs levou 9,5 s.) |
-| P3 | Aviso enquanto tenta | "digitando…" (`send_chat_action`) antes de cada tentativa, com limite de 2 s (`AVISO_SEGUNDOS`); o tempo do aviso conta no orçamento. Falha ou demora ao mandar a ação só vai para o log. |
+| P3 | Aviso enquanto tenta | **Revista em 17/11/2026 ([D-049](../decisoes.md#d-049--digitando-contínuo-durante-o-r)).** "digitando…" (`send_chat_action`) contínuo durante todo o `/r` e o clique: tentativas, esperas e gravação. O primeiro sai no início e os seguintes a cada 4 s, cada envio com até 2 s. Uma falha ou demora só perde aquela renovação e vai para o log. O aviso fica **fora** do orçamento de 40 s. (Antes: só antes de cada tentativa, sem renovação.) |
 | P4 | Concorrência | **Fila mantida** (D-047). Não usar `block=False` nem trava no banco. |
 | P5 | Mensagem de falha e botão | `Não consegui estimar agora. Nada foi registrado.` + `[🔄 Tentar de novo]`. O botão aparece em **toda** falha do Gemini (passageira esgotada, fora do schema, item inválido) e em nenhum outro erro. |
 | P6 | Pedido pendente | Em memória, `bot_data["pendentes"]`, chave `(chat_id, message_id do /r original)`, `callback_data` = `tentar:<message_id>`. Guarda: `telegram_id` e nome do dono, `descricao` original, texto limpo e `message.date` do `/r`. Reiniciar o bot perde os pendentes. |
@@ -43,7 +43,7 @@ Base para os agentes `kally-python` e `kally-revisor`. Este documento não subst
 ## 3. Escopo
 
 **Entra:**
-- nova tentativa automática nas falhas passageiras (P1, P2), com "digitando…" (P3);
+- nova tentativa automática nas falhas passageiras (P1, P2), com "digitando…" contínuo (P3, D-049);
 - botão "🔄 Tentar de novo" na falha do Gemini, com o pedido pendente em memória (P5 a P11);
 - pendências herdadas (P13);
 - testes;
@@ -61,8 +61,8 @@ Base para os agentes `kally-python` e `kally-revisor`. Este documento não subst
 
 | Arquivo | Mudança |
 |---|---|
-| `app/gemini.py` | Classificação dos erros (P1) e laço de tentativas com os tempos de P2. O cliente continua com `HttpRetryOptions(attempts=1)`: as novas tentativas são do código, para o orçamento valer. Relógio e espera injetáveis para os testes. |
-| `app/handlers.py` | O miolo do `/r` (estimar, gravar, montar a resposta) vira uma função usada pelo `/r` e pelo botão. Pendentes em memória, botão na falha e o handler do clique. |
+| `app/gemini.py` | Classificação dos erros (P1) e laço de tentativas com os tempos de P2. O cliente continua com `HttpRetryOptions(attempts=1)`: as novas tentativas são do código, para o orçamento valer. Relógio e espera injetáveis para os testes. Não sabe do "digitando…" (D-049). |
+| `app/handlers.py` | O miolo do `/r` (estimar, gravar, montar a resposta) vira uma função usada pelo `/r` e pelo botão, dentro do `digitando` contínuo (D-049). Pendentes em memória, botão na falha e o handler do clique. |
 | `app/main.py` | `CallbackQueryHandler(handlers.botao_tentar, pattern=r"^tentar:")`. Sem `block=False`. |
 | `docker-compose.yml` | `-h 127.0.0.1` no healthcheck (P13). |
 | `tests/` | Classificação, tempos com relógio falso, pendentes (dono, expiração, duplo clique), clique pelo filtro de chats, fluxo do botão. |
