@@ -9,7 +9,7 @@ Plano de implementação da etapa 4, dividido em **tasks pequenas e sequenciais*
 ## 1. Objetivo
 
 Ao fim da etapa:
-- falhas passageiras do Gemini (5xx, 429, tempo esgotado, conexão) são repetidas sozinhas, até 3 vezes e no máximo 40 s, com "digitando…";
+- falhas passageiras do Gemini (5xx, 429, tempo esgotado, conexão) são repetidas sozinhas, até 3 vezes e no máximo 40 s, com "digitando…" visível até a resposta (D-049);
 - se ainda assim falhar, a mensagem de falha traz o botão **🔄 Tentar de novo**, que repete o pedido sem reenviar o texto, só para quem mandou o `/r`, com a data do `/r` original;
 - as três pendências herdadas da etapa 2 estão resolvidas.
 
@@ -100,17 +100,22 @@ Ao fim da etapa:
 
 **Pronto quando:** testes passando; `handlers.py` sem mudança (a assinatura nova é compatível).
 
+> **Ajuste de 17/11/2026 ([D-049](../decisoes.md#d-049--digitando-contínuo-durante-o-r)):** o `antes_de_tentar`, o `_avisar` e o `AVISO_SEGUNDOS` foram removidos do `gemini.py`, com os testes deles. O "digitando…" passou para o `handlers.digitando` (T4) e não conta mais no orçamento.
+
 ---
 
 ## T4 — Extrair o fluxo do `/r` e o "digitando…"
 
-**Objetivo:** preparar o terreno para o botão sem mudar o comportamento: o miolo do `/r` vira uma função reutilizável, e o "digitando…" entra (P3).
+**Objetivo:** preparar o terreno para o botão sem mudar o comportamento: o miolo do `/r` vira uma função reutilizável, e o "digitando…" contínuo entra (P3, D-049).
 
-**Ler:** `comando_r` inteiro; `tests/test_refeicao.py` (fixtures `bot_teste`, `gemini_falso`, `banco_falso`); RN-007; P3 e P8.
+**Ler:** `comando_r` inteiro; `tests/test_refeicao.py` (fixtures `bot_teste`, `gemini_falso`, `banco_falso`); RN-007; P3 e P8; D-049.
+
+Detalhes e decisões: [etapa-4-t4-implementacao.md](etapa-4-t4-implementacao.md).
 
 **Fazer:**
-1. Criar `processar_refeicao(context, chat_id, usuario_id, nome, descricao, texto_limpo, momento) -> str | None` (o nome pode ser outro, desde que claro):
-   - chama `gemini.estimar` com `antes_de_tentar` que manda `ChatAction.TYPING` para o `chat_id`;
+1. Criar `processar_refeicao(context, chat_id, usuario_id, nome, descricao, texto_limpo, momento) -> str`:
+   - todo o corpo (Gemini, gravação e montagem do texto) roda dentro de `async with digitando(context.bot, chat_id):` (D-049): o primeiro "digitando…" sai na hora e é renovado a cada 4 s numa tarefa paralela, cada envio com até 2 s; uma falha só perde aquela renovação e vai para o log; a tarefa para ao sair do bloco, com ou sem erro; fica fora do orçamento de 40 s;
+   - chama `gemini.estimar` sem aviso: o `estimar` não sabe do "digitando…";
    - nenhum alimento → devolve o texto de "nenhum alimento";
    - sucesso → grava (como hoje) e devolve o texto da resposta;
    - `FalhaGemini` **sobe** para quem chamou (o `/r` e, na T6, o botão decidem o que fazer);
@@ -119,9 +124,9 @@ Ao fim da etapa:
 2. `comando_r` fica: usuário, extrair e limpar, validações de vazio e tamanho, `processar_refeicao`, responder. Na `FalhaGemini`, continua respondendo `TEXTO_FALHA_GEMINI` (o botão é a T5).
 3. Nada de pendentes, botão ou `main.py` nesta task.
 
-**Testes:** todos os testes atuais do `/r` passam sem mudar o que verificam. Novo: o "digitando…" é enviado ao chat certo antes da chamada; falha ao mandar o "digitando…" não impede o registro.
+**Testes:** todos os testes atuais do `/r` passam sem mudar o que verificam. Novos: o "digitando…" é enviado ao chat certo antes da chamada; falha ao mandar o "digitando…" não impede o registro; o `/r` inteiro roda dentro do `digitando`, que para no sucesso, na `FalhaGemini` e no erro de banco; o mecanismo (renovação, parada e cancelamento) em `tests/test_digitando.py`.
 
-**Pronto quando:** testes passando e o `/r` se comporta igual no Telegram, agora com "digitando…".
+**Pronto quando:** testes passando e o `/r` se comporta igual no Telegram, agora com "digitando…" visível até a resposta.
 
 ---
 
@@ -169,7 +174,7 @@ Ao fim da etapa:
    2. Confere o dono **antes** de retirar o pendente: se o pendente existe e quem clicou não é o dono → `answer(TEXTO_SO_O_DONO, show_alert=False)` e encerra, sem mexer no pendente (P9).
    3. `retirar_pendente` (antes de qualquer outro `await`). Não existe ou expirou → `answer(TEXTO_PEDIDO_EXPIRADO)`, tira o botão da mensagem e encerra (P7).
    4. `answer()` e edita a mensagem para `TEXTO_TENTANDO_DE_NOVO`, sem botão (P10).
-   5. `processar_refeicao` com os dados do pendente, inclusive o `momento` original (P8).
+   5. `processar_refeicao` com os dados do pendente, inclusive o `momento` original (P8). O "digitando…" contínuo vem junto, sem código novo (D-049). Ressalva aceita: editar a mensagem não apaga o "digitando…", que pode ficar até ~5 s depois da edição.
    6. Resultado (P11):
       - sucesso ou nenhum alimento → edita a mensagem para o texto devolvido, sem botão;
       - `FalhaGemini` → devolve o pendente e edita para `TEXTO_FALHA_GEMINI` com o botão;
@@ -216,7 +221,7 @@ Depois da T7: `kally-revisor` revisa a etapa inteira contra o doc de decisões, 
    ```bash
    docker compose exec -u root bot sh -c 'echo "127.0.0.1 generativelanguage.googleapis.com" >> /etc/hosts'
    ```
-5. `/r 1 banana`: o log mostra 3 tentativas com falha de conexão e esperas de 2 s e 5 s; a resposta é `Não consegui estimar agora. Nada foi registrado.` com o botão. Nada foi gravado.
+5. `/r 1 banana`: o "digitando…" fica visível, sem interrupção, até a resposta (D-049); o log mostra 3 tentativas com falha de conexão e esperas de 2 s e 5 s; a resposta é `Não consegui estimar agora. Nada foi registrado.` com o botão. Nada foi gravado.
 6. Com o Gemini ainda bloqueado, aperte o botão: a mensagem vira `Tentando de novo…` e volta à falha com o botão.
 7. **Desbloquear o Gemini:**
    ```bash

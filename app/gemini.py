@@ -20,7 +20,6 @@ ESPERAS_SEGUNDOS = (2, 5)  # espera depois da 1ª e da 2ª falha
 TIMEOUT_SEGUNDOS = 15  # limite de cada tentativa; o timeout do SDK não limita o total
 ORCAMENTO_SEGUNDOS = 40  # limite de todas as tentativas juntas
 MINIMO_PARA_TENTAR_SEGUNDOS = 5  # com 5 s ou menos sobrando, não começa outra tentativa
-AVISO_SEGUNDOS = 2  # limite do aviso antes de cada tentativa ("digitando…", P3)
 
 KCAL_100G_MAXIMO = 900
 MACRO_100G_MAXIMO = 100  # 100 g de alimento não têm mais de 100 g de um macro
@@ -157,20 +156,10 @@ async def _chamar_uma_vez(cliente: genai.Client, modelo: str, texto: str, limite
     return estimativa
 
 
-async def _avisar(antes_de_tentar: Callable[[], Awaitable[None]]) -> None:
-    """P3: o aviso ("digitando…") nunca derruba nem trava a estimativa."""
-    try:
-        async with asyncio.timeout(AVISO_SEGUNDOS):
-            await antes_de_tentar()
-    except Exception as erro:
-        logger.warning("Aviso antes da tentativa falhou: %s", type(erro).__name__)
-
-
 async def estimar(
     cliente: genai.Client,
     modelo: str,
     texto: str,
-    antes_de_tentar: Callable[[], Awaitable[None]] | None = None,
     # relogio e dormir existem só para os testes.
     relogio: Callable[[], float] = time.monotonic,
     dormir: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -178,15 +167,11 @@ async def estimar(
     """Pede a estimativa e devolve a resposta já validada (RN-016, RN-017).
 
     Falhas passageiras são repetidas até TENTATIVAS vezes, dentro de ORCAMENTO_SEGUNDOS.
-    `antes_de_tentar`, se vier, é chamada antes de cada tentativa.
+    O "digitando…" fica com quem chama (handlers.digitando, D-049), fora do orçamento.
     FalhaGemini é a única exceção que sai daqui. Um item inválido cancela tudo.
     """
     inicio = relogio()
     for tentativa in range(1, TENTATIVAS + 1):
-        if antes_de_tentar is not None:
-            await _avisar(antes_de_tentar)
-
-        # O tempo do aviso conta no orçamento.
         restante = ORCAMENTO_SEGUNDOS - (relogio() - inicio)
         if restante <= MINIMO_PARA_TENTAR_SEGUNDOS:
             logger.warning("Gemini desistiu: sem tempo para a tentativa %d/%d", tentativa, TENTATIVAS)

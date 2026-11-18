@@ -1,13 +1,16 @@
 """Handlers do bot: filtro de chats autorizados, /id, /peso e /r."""
 
+import asyncio
 import logging
 import re
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from datetime import date, datetime, time
 from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
 import asyncpg
-from telegram import Update
+from telegram import Bot, Update
 from telegram.constants import ChatAction
 from telegram.ext import ApplicationHandlerStop, ContextTypes
 
@@ -41,6 +44,10 @@ TEXTO_FALHA_GEMINI = "Não consegui estimar agora. Nada foi registrado, tente de
 # Não diz "nada foi registrado": a confirmação do commit pode se perder com a refeição já gravada.
 TEXTO_BANCO_FORA_DO_AR = "Não consegui confirmar o registro agora. Tente de novo em instantes."
 TEXTO_ERRO_INESPERADO = "Algo deu errado. Tente de novo em instantes."
+
+# D-049: o Telegram apaga o "digitando…" em uns 5 s; renovar a cada 4 s deixa 1 s de folga.
+DIGITANDO_RENOVAR_SEGUNDOS = 4
+DIGITANDO_LIMITE_SEGUNDOS = 2  # limite de cada envio do "digitando…"
 
 
 def eh_comando_id(texto: str | None) -> bool:
@@ -273,6 +280,51 @@ def resposta_refeicao(
     return "\n".join(linhas)
 
 
+async def mandar_digitando(bot: Bot, chat_id: int) -> None:
+    """Um "digitando…". Falha ou demora só perde este envio: vai para o log e segue (D-049)."""
+    try:
+        # Lido aqui dentro, e não como padrão de parâmetro, para os testes poderem trocar.
+        async with asyncio.timeout(DIGITANDO_LIMITE_SEGUNDOS):
+            await bot.send_chat_action(chat_id, ChatAction.TYPING)
+    except Exception as erro:
+        # Só o tipo do erro: a mensagem pode trazer dados da requisição.
+        logger.warning("Aviso de digitando falhou: %s", type(erro).__name__)
+
+
+async def _renovar_digitando(
+    bot: Bot, chat_id: int, dormir: Callable[[float], Awaitable[None]]
+) -> None:
+    """Renova o "digitando…" até ser cancelada por quem a criou."""
+    while True:
+        await dormir(DIGITANDO_RENOVAR_SEGUNDOS)
+        await mandar_digitando(bot, chat_id)
+
+
+@asynccontextmanager
+async def digitando(
+    bot: Bot,
+    chat_id: int,
+    # dormir existe só para os testes.
+    dormir: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> AsyncIterator[None]:
+    """Mantém o "digitando…" visível enquanto o bloco roda (D-049).
+
+    O primeiro sai na hora; os seguintes, a cada DIGITANDO_RENOVAR_SEGUNDOS, numa tarefa
+    paralela. Fica fora do orçamento do Gemini e para ao sair, com ou sem erro.
+    """
+    # O primeiro é aguardado: numa resposta rápida, a tarefa nem chegaria a rodar.
+    await mandar_digitando(bot, chat_id)
+    tarefa = asyncio.create_task(_renovar_digitando(bot, chat_id, dormir))
+    try:
+        yield
+    finally:
+        tarefa.cancel()
+        # `asyncio.wait` espera a tarefa terminar sem lançar o CancelledError dela.
+        # Um `await tarefa` lançaria esse erro, e não daria para distinguir do
+        # cancelamento do próprio /r (bot desligando), que precisa continuar subindo.
+        await asyncio.wait([tarefa])
+
+
 async def processar_refeicao(
     context: ContextTypes.DEFAULT_TYPE,
     chat_id: int,
@@ -289,43 +341,39 @@ async def processar_refeicao(
     """
     pool = context.bot_data["pool"]
 
-    async def avisar() -> None:
-        # RN-017 / P3: "digitando…" antes de cada tentativa. O limite de tempo e a falha
-        # do aviso ficam com o gemini._avisar.
-        await context.bot.send_chat_action(chat_id, ChatAction.TYPING)
+    # RN-017 / D-049: "digitando…" visível nas tentativas, nas esperas e na gravação.
+    async with digitando(context.bot, chat_id):
+        estimativa = await gemini.estimar(
+            context.bot_data["gemini"],
+            context.bot_data["gemini_modelo"],
+            texto_limpo,
+        )
 
-    estimativa = await gemini.estimar(
-        context.bot_data["gemini"],
-        context.bot_data["gemini_modelo"],
-        texto_limpo,
-        antes_de_tentar=avisar,
-    )
+        if not estimativa.itens:
+            return TEXTO_R_NENHUM_ALIMENTO
 
-    if not estimativa.itens:
-        return TEXTO_R_NENHUM_ALIMENTO
+        # RN-007: vale o horário de envio da mensagem, não o do processamento.
+        data, hora = data_hora_sao_paulo(momento)
 
-    # RN-007: vale o horário de envio da mensagem, não o do processamento.
-    data, hora = data_hora_sao_paulo(momento)
+        base = await db.salvar_alimentos(pool, alimentos_para_salvar(estimativa.itens))
+        itens = calcular_itens(estimativa.itens, base)
+        total_dia = await db.registrar_refeicao(
+            pool,
+            usuario_id,
+            chat_id,
+            descricao,
+            int(sum(item["kcal"] for item in itens)),
+            sum(item["proteina_g"] for item in itens),
+            sum(item["carbo_g"] for item in itens),
+            sum(item["gordura_g"] for item in itens),
+            data,
+            hora,
+            itens,
+        )
 
-    base = await db.salvar_alimentos(pool, alimentos_para_salvar(estimativa.itens))
-    itens = calcular_itens(estimativa.itens, base)
-    total_dia = await db.registrar_refeicao(
-        pool,
-        usuario_id,
-        chat_id,
-        descricao,
-        int(sum(item["kcal"] for item in itens)),
-        sum(item["proteina_g"] for item in itens),
-        sum(item["carbo_g"] for item in itens),
-        sum(item["gordura_g"] for item in itens),
-        data,
-        hora,
-        itens,
-    )
-
-    # O relógio só decide o texto ("hoje" ou a data), nunca o dia da refeição (P5).
-    hoje = datetime.now(FUSO).date()
-    return resposta_refeicao(nome, itens, total_dia, data, hoje, estimativa.ignorados)
+        # O relógio só decide o texto ("hoje" ou a data), nunca o dia da refeição (P5).
+        hoje = datetime.now(FUSO).date()
+        return resposta_refeicao(nome, itens, total_dia, data, hoje, estimativa.ignorados)
 
 
 async def comando_r(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -60,7 +60,8 @@ Diário de bordo do projeto: cada decisão importante, quando foi tomada, por qu
 | D-045 | 2026-11-10 | Falha passageira do Gemini: nova tentativa automática e botão "Tentar de novo" | Negócio | vigente |
 | D-046 | 2026-11-10 | Novo roteiro: etapa 4 vira resiliência do Gemini; `/dia` e `/semana` se separam | Produto | vigente |
 | D-047 | 2026-11-10 | Os updates continuam em fila (um por vez); chamadas paralelas ficam para o futuro | Técnica | vigente |
-| D-048 | 2026-11-10 | Detalhes da resiliência do Gemini: 3 tentativas, 15 s cada, 40 s no total, botão só do dono, 7 dias | Negócio | vigente |
+| D-048 | 2026-11-10 | Detalhes da resiliência do Gemini: 3 tentativas, 15 s cada, 40 s no total, botão só do dono, 7 dias | Negócio | vigente; o "digitando…" foi substituído por D-049 |
+| D-049 | 2026-11-17 | "digitando…" contínuo: visível durante todo o `/r`, renovado a cada 4 s, fora do orçamento de 40 s | Negócio | vigente |
 
 ---
 
@@ -375,6 +376,25 @@ Diário de bordo do projeto: cada decisão importante, quando foi tomada, por qu
 - **Revisar se:** o grupo crescer ou a espera atrapalhar o uso.
 
 ### D-048 — Detalhes da resiliência do Gemini
+> **"digitando…" substituído por D-049.** O aviso só antes de cada tentativa sumia depois de uns 5 s. O resto desta decisão continua valendo.
+
 - **Contexto:** premissas P1 a P13 de [`etapas/etapa-4-decisoes.md`](etapas/etapa-4-decisoes.md), respondidas pelo usuário em 10/11/2026.
 - **Decisão:** vale a RN-017 como está escrita: só falhas passageiras se repetem (5xx, 429, tempo esgotado, conexão); até 3 tentativas, esperas de 2 s e 5 s, 15 s por tentativa e 40 s no total; "digitando…" antes de cada tentativa; botão "🔄 Tentar de novo" só na falha do Gemini e só para quem mandou o `/r`; pedido em memória por 7 dias; vale o horário do `/r` original; clique bem-sucedido edita a mensagem de falha. O prompt não muda (D-043). As três pendências herdadas da etapa 2 entram na etapa 4.
 - **Motivo dos 15 s / 40 s:** a resposta bem-sucedida mais lenta nos logs levou 9,5 s (9 itens); 12 s deixaria pouca margem.
+
+### D-049 — "digitando…" contínuo durante o `/r`
+- **Contexto:** a T4 da etapa 4 mandava o "digitando…" só antes de cada tentativa do Gemini (P3, D-048). No teste no Telegram, em 17/11/2026, o aviso sumia depois de uns 5 s: numa tentativa longa (até 15 s), nas esperas entre tentativas e na gravação, o chat ficava sem indicação até a resposta.
+- **Decisão:** substitui o "digitando…" de D-048 e da P3.
+  - O "digitando…" fica visível durante todo o processamento do `/r` e do clique em "🔄 Tentar de novo": tentativas, esperas de 2 s e 5 s e gravação no banco.
+  - O primeiro sai no início; os seguintes, a cada **4 s**, numa tarefa paralela que para ao terminar, com sucesso, falha, erro de banco ou cancelamento.
+  - Cada envio tem até **2 s**. Uma falha (ou demora) só perde aquela renovação: vai para o log, só com o tipo do erro, e as seguintes continuam.
+  - O aviso fica **fora** do orçamento de 40 s do Gemini.
+  - O mecanismo mora no `handlers.py` (`digitando`). O `gemini.estimar` deixa de receber aviso: o `antes_de_tentar` da T3 foi removido.
+- **Motivo:** o Telegram apaga o aviso depois de uns 5 s; 4 s deixa 1 s de folga. O aviso é assunto do Telegram, não do Gemini, e precisa cobrir também a gravação.
+- **Alternativa descartada:** manter o `antes_de_tentar` no `gemini.estimar` e renovar lá dentro. Não cobriria a gravação no banco e misturaria Telegram com Gemini.
+- **Consequências:**
+  - Até ~11 avisos por `/r` no pior caso (40 s), bem abaixo dos limites do Telegram.
+  - O tempo total do `/r` pode passar de 40 s em até 2 s (o primeiro aviso) mais o tempo do banco.
+  - Se um envio já tiver saído quando o `/r` termina, o "digitando…" pode aparecer por até ~5 s depois da resposta. Só visual; aceito.
+  - No clique (T6), a resposta é uma edição de mensagem, que não apaga o "digitando…": ele pode ficar até ~5 s depois. Só visual; aceito.
+- **Revisar se:** o Telegram mudar a duração do aviso, ou o paralelismo (D-047) entrar.

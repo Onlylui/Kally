@@ -265,13 +265,12 @@ async def test_timeout_por_tentativa(monkeypatch):
 
 
 def test_constantes_de_tempo():
-    # RN-017 / P2 / P3
+    # RN-017 / P2
     assert gemini.TENTATIVAS == 3
     assert gemini.ESPERAS_SEGUNDOS == (2, 5)
     assert gemini.TIMEOUT_SEGUNDOS == 15
     assert gemini.ORCAMENTO_SEGUNDOS == 40
     assert gemini.MINIMO_PARA_TENTAR_SEGUNDOS == 5
-    assert gemini.AVISO_SEGUNDOS == 2
 
 
 # --- laço de tentativas (RN-017, P1, P2), com relógio e espera falsos ---
@@ -458,84 +457,6 @@ async def test_borda_do_minimo_para_tentar(gasto_antes, tenta):
         with pytest.raises(FalhaGemini) as falha:
             await estimar_com_roteiro(tempo, roteiro)
         assert len(falha.value.chamadas) == 2
-
-
-@pytest.mark.asyncio
-async def test_antes_de_tentar_e_chamado_em_cada_tentativa():
-    tempo = TempoFalso()
-    avisos = []
-
-    async def avisar():
-        avisos.append(tempo.agora)
-
-    resposta, _ = await estimar_com_roteiro(
-        tempo, [(1, erro_503()), (1, erro_503()), (1, RESPOSTA_OK)], antes_de_tentar=avisar
-    )
-    assert resposta is RESPOSTA_OK
-    assert len(avisos) == 3
-
-
-@pytest.mark.asyncio
-async def test_aviso_com_erro_nao_derruba_a_estimativa(caplog):
-    tempo = TempoFalso()
-
-    async def avisar():
-        raise RuntimeError("telegram fora")
-
-    with caplog.at_level(logging.WARNING, logger="app.gemini"):
-        resposta, chamadas = await estimar_com_roteiro(tempo, [(1, RESPOSTA_OK)], antes_de_tentar=avisar)
-    assert resposta is RESPOSTA_OK
-    assert len(chamadas) == 1
-    assert "RuntimeError" in caplog.text
-    assert "telegram fora" not in caplog.text
-
-
-@pytest.mark.asyncio
-async def test_aviso_travado_e_cortado(monkeypatch, caplog):
-    monkeypatch.setattr(gemini, "AVISO_SEGUNDOS", 0.01)
-    tempo = TempoFalso()
-
-    async def avisar():
-        await asyncio.sleep(5)
-
-    with caplog.at_level(logging.WARNING, logger="app.gemini"):
-        resposta, _ = await estimar_com_roteiro(tempo, [(1, RESPOSTA_OK)], antes_de_tentar=avisar)
-    assert resposta is RESPOSTA_OK
-    assert "TimeoutError" in caplog.text
-
-
-@pytest.mark.asyncio
-async def test_tempo_do_aviso_conta_no_limite(monkeypatch):
-    tempo = TempoFalso()
-    limites = []
-
-    async def avisar():
-        tempo.agora += 30
-
-    async def chamar_falso(cliente, modelo, texto, limite):
-        limites.append(limite)
-        return RESPOSTA_OK
-
-    monkeypatch.setattr(gemini, "_chamar_uma_vez", chamar_falso)
-    await gemini.estimar(
-        None, "modelo", "arroz", antes_de_tentar=avisar, relogio=tempo.relogio, dormir=tempo.dormir
-    )
-    assert limites == [10]
-
-
-@pytest.mark.asyncio
-async def test_aviso_que_esgota_o_orcamento_desiste_sem_chamar():
-    tempo = TempoFalso()
-    avisos = []
-
-    async def avisar():
-        avisos.append(1)
-        if len(avisos) == 2:
-            tempo.agora += 32  # 1 + 2 + 32 = 35 s: sobram 5 s, não tenta
-
-    with pytest.raises(FalhaGemini) as falha:
-        await estimar_com_roteiro(tempo, [(1, erro_503()), (1, RESPOSTA_OK)], antes_de_tentar=avisar)
-    assert len(falha.value.chamadas) == 1
 
 
 @pytest.mark.asyncio

@@ -189,14 +189,12 @@ async def bot_teste():
 def gemini_falso(monkeypatch, bot_teste):
     """Troca o gemini.estimar: `resposta` define o retorno e `chamadas` guarda os textos.
 
-    Chama o `antes_de_tentar` uma vez, sem tratar erro, e registra ("gemini", texto)
-    nos `eventos` da requisição, para os testes conferirem a ordem.
+    Registra ("gemini", texto) nos `eventos` da requisição, para os testes conferirem
+    a ordem em relação ao "digitando…" e à resposta.
     """
     falso = SimpleNamespace(chamadas=[], resposta=None, erro=None)
 
-    async def estimar(cliente, modelo, texto, antes_de_tentar=None):
-        if antes_de_tentar is not None:
-            await antes_de_tentar()
+    async def estimar(cliente, modelo, texto):
         bot_teste.requisicao.eventos.append(("gemini", texto))
         falso.chamadas.append(texto)
         if falso.erro:

@@ -1,5 +1,7 @@
 """/r sem Postgres: tratamento do texto, cálculo, respostas, silêncio e erros de banco."""
 
+import logging
+from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from types import SimpleNamespace
@@ -8,10 +10,9 @@ import asyncpg
 import pytest
 from telegram import Message, Update
 from telegram.error import NetworkError
-from google.genai import errors
 from telegram.ext import CallbackContext, MessageHandler
 
-from app import gemini, handlers
+from app import handlers
 from app.gemini import FalhaGemini, ItemEstimado, RespostaGemini
 from app.handlers import (
     LIMITE_DESCRICAO,
@@ -328,7 +329,7 @@ async def test_falha_do_gemini_nao_grava(bot_teste, gemini_falso, banco_falso):
     ]
 
 
-# --- "digitando…" (RN-017 / P3) ---
+# --- "digitando…" (RN-017 / D-049) ---
 
 def eventos_de_acao(bot_teste) -> list[tuple]:
     return [evento for evento in bot_teste.requisicao.eventos if evento[0] == "acao"]
@@ -353,51 +354,93 @@ async def test_r_vazio_e_longo_nao_mandam_digitando(bot_teste, gemini_falso, ban
     assert eventos_de_acao(bot_teste) == []
 
 
-def resposta_valida_do_gemini() -> RespostaGemini:
-    return RespostaGemini(itens=[criar_item(gramas=200)], ignorados=[])
-
-
 @pytest.mark.asyncio
-async def test_falha_no_digitando_nao_impede_o_registro(bot_teste, banco_falso, monkeypatch, caplog):
-    # estimar real: só a chamada ao Gemini é trocada.
-    async def chamar_falso(cliente, modelo, texto, limite):
-        return resposta_valida_do_gemini()
-
-    monkeypatch.setattr(gemini, "_chamar_uma_vez", chamar_falso)
+async def test_falha_no_digitando_nao_impede_o_registro(bot_teste, gemini_falso, banco_falso, caplog):
+    gemini_falso.resposta = RespostaGemini(itens=[criar_item(gramas=200)], ignorados=[])
     bot_teste.requisicao.falhar_acoes = True
 
-    respostas = await bot_teste.enviar("/r 200 g de arroz")
+    with caplog.at_level(logging.WARNING, logger="app.handlers"):
+        respostas = await bot_teste.enviar("/r 200 g de arroz")
 
     assert len(banco_falso.refeicoes) == 1
     assert len(respostas) == 1
     assert respostas[0].startswith("João: +260 kcal")
     assert eventos_de_acao(bot_teste) == [("acao", CHAT_AUTORIZADO, "typing")]
-    assert "Aviso antes da tentativa falhou" in caplog.text
+    assert "Aviso de digitando falhou: BadRequest" in caplog.text
+
+
+# O mecanismo do "digitando…" é testado em tests/test_digitando.py. Aqui, com um
+# `digitando` falso, confere-se que o /r inteiro (Gemini e banco) roda dentro dele (D-049).
+
+@pytest.fixture
+def digitando_falso(monkeypatch, bot_teste):
+    """Troca o handlers.digitando: registra ("entrou", chat_id) e ("saiu", chat_id) nos eventos."""
+    eventos = bot_teste.requisicao.eventos
+
+    @asynccontextmanager
+    async def digitando(bot, chat_id):
+        eventos.append(("entrou", chat_id))
+        try:
+            yield
+        finally:
+            eventos.append(("saiu", chat_id))
+
+    monkeypatch.setattr(handlers, "digitando", digitando)
 
 
 @pytest.mark.asyncio
-async def test_digitando_em_cada_tentativa(bot_teste, banco_falso, monkeypatch):
-    # Sem espera entre as tentativas; nunca trocar o asyncio.sleep.
-    monkeypatch.setattr(gemini, "ESPERAS_SEGUNDOS", (0, 0))
-    tentativas = []
+async def test_r_grava_dentro_do_digitando(bot_teste, gemini_falso, banco_falso, digitando_falso, monkeypatch):
+    gemini_falso.resposta = RespostaGemini(itens=[criar_item(gramas=200)], ignorados=[])
+    registrar_original = handlers.db.registrar_refeicao
 
-    async def chamar_falso(cliente, modelo, texto, limite):
-        tentativas.append(texto)
-        if len(tentativas) == 1:
-            raise errors.ServerError(503, {})
-        return resposta_valida_do_gemini()
+    async def registrar(pool, *argumentos):
+        bot_teste.requisicao.eventos.append(("banco",))
+        return await registrar_original(pool, *argumentos)
 
-    monkeypatch.setattr(gemini, "_chamar_uma_vez", chamar_falso)
-
+    monkeypatch.setattr(handlers.db, "registrar_refeicao", registrar)
     respostas = await bot_teste.enviar("/r 200 g de arroz")
 
-    assert len(tentativas) == 2
-    assert eventos_de_acao(bot_teste) == [
-        ("acao", CHAT_AUTORIZADO, "typing"),
-        ("acao", CHAT_AUTORIZADO, "typing"),
+    assert bot_teste.requisicao.eventos == [
+        ("entrou", CHAT_AUTORIZADO),
+        ("gemini", "200 g de arroz"),
+        ("banco",),
+        ("saiu", CHAT_AUTORIZADO),
+        ("mensagem", respostas[0]),
     ]
-    assert len(banco_falso.refeicoes) == 1
-    assert respostas[0].startswith("João: +260 kcal")
+
+
+@pytest.mark.asyncio
+async def test_digitando_para_na_falha_do_gemini(bot_teste, gemini_falso, banco_falso, digitando_falso):
+    gemini_falso.erro = FalhaGemini()
+    await bot_teste.enviar("/r arroz")
+
+    assert bot_teste.requisicao.eventos == [
+        ("entrou", CHAT_AUTORIZADO),
+        ("gemini", "arroz"),
+        ("saiu", CHAT_AUTORIZADO),
+        ("mensagem", TEXTO_FALHA_GEMINI),
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("funcao", ["salvar_alimentos", "registrar_refeicao"])
+async def test_digitando_para_no_erro_de_banco(
+    bot_teste, gemini_falso, banco_falso, digitando_falso, monkeypatch, funcao
+):
+    gemini_falso.resposta = RespostaGemini(itens=[criar_item()], ignorados=[])
+
+    async def falhar(*_):
+        raise ConnectionRefusedError("conexão recusada")
+
+    monkeypatch.setattr(handlers.db, funcao, falhar)
+    await bot_teste.enviar("/r arroz")
+
+    assert bot_teste.requisicao.eventos == [
+        ("entrou", CHAT_AUTORIZADO),
+        ("gemini", "arroz"),
+        ("saiu", CHAT_AUTORIZADO),
+        ("mensagem", TEXTO_BANCO_FORA_DO_AR),
+    ]
 
 
 # --- processar_refeicao chamada direto (P8) ---
